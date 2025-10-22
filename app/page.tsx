@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 import { Lock, Unlock } from "lucide-react";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -43,7 +43,8 @@ type Vault = {
   target: number;
   locked: number;
   saved: number;
-  dueDays: number | null;
+  dueDays: number | null;   // <-- always present (number or null)
+  isLocked: boolean;        // <-- your new flag for the raised lock button
 };
 
 type UnlockRequest = {
