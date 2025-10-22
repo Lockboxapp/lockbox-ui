@@ -713,48 +713,66 @@ function TransferModal({
   const [mode, setMode] = useState<"bank" | "vault">("bank");
   const [amount, setAmount] = useState(100);
   const [toVaultId, setToVaultId] = useState<string>("");
+
+  // ✅ HOOKS MUST COME FIRST (and run every render in same order)
   const sourceId = sourceVault?.id ?? "";
-  const otherVaults = React.useMemo(
-  () => vaults.filter(v => v.id !== sourceId),
-  [vaults, sourceId]
-);
-
-useEffect(() => {
-  // safe: this runs every render in the same order, but exits early if not ready
-  if (mode !== "vault") return;
-  if (!toVaultId && otherVaults.length > 0) {
-    setToVaultId(otherVaults[0].id);
-  }
-}, [mode, otherVaults, toVaultId]);
-
-  if (!sourceVault) return null;
-
-  const unlocked = Math.max(0, sourceVault.saved - sourceVault.locked);
-  const otherVaults = vaults.filter((v) => v.id !== sourceVault.id);
+  const otherVaults = useMemo(
+    () => vaults.filter((v) => v.id !== sourceId),
+    [vaults, sourceId]
+  );
 
   useEffect(() => {
-    if (mode === "vault" && otherVaults.length > 0 && !toVaultId) {
+    // safe: runs every render in the same order; exits if not ready
+    if (mode !== "vault") return;
+    if (!toVaultId && otherVaults.length > 0) {
       setToVaultId(otherVaults[0].id);
     }
   }, [mode, otherVaults, toVaultId]);
 
+  // Early return AFTER hooks to keep hook order stable
+  if (!sourceVault) return null;
+
+  const unlocked = Math.max(0, sourceVault.saved - sourceVault.locked);
+
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }} className="w-full max-w-sm rounded-3xl bg-white p-6">
+        <motion.div
+          className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            initial={{ y: 16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 16, opacity: 0 }}
+            className="w-full max-w-sm rounded-3xl bg-white p-6"
+          >
             <div className="text-lg font-semibold mb-2">Transfer</div>
             <div className="text-sm text-gray-500 mb-1">
               From: <span className="font-medium text-gray-800">{sourceVault.name}</span>
             </div>
-            <div className="text-xs text-gray-500 mb-4">Available from unlocked: <b>${unlocked}</b></div>
+            <div className="text-xs text-gray-500 mb-4">
+              Available from unlocked: <b>${unlocked}</b>
+            </div>
 
             {/* Mode switch */}
             <div className="mb-4 grid grid-cols-2 gap-2">
-              <button onClick={() => setMode("bank")} className={`py-2 rounded-xl border ${mode === "bank" ? "bg-gray-900 text-white border-gray-900" : "bg-white"}`}>
+              <button
+                onClick={() => setMode("bank")}
+                className={`py-2 rounded-xl border ${
+                  mode === "bank" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+                }`}
+              >
                 To bank
               </button>
-              <button onClick={() => setMode("vault")} className={`py-2 rounded-xl border ${mode === "vault" ? "bg-gray-900 text-white border-gray-900" : "bg-white"}`}>
+              <button
+                onClick={() => setMode("vault")}
+                className={`py-2 rounded-xl border ${
+                  mode === "vault" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+                }`}
+              >
                 Between vaults
               </button>
             </div>
@@ -764,7 +782,9 @@ useEffect(() => {
               <span className="text-gray-500 mr-1">$</span>
               <input
                 value={amount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setAmount(Number(e.target.value || 0))
+                }
                 type="number"
                 min={0}
                 max={unlocked}
@@ -775,11 +795,18 @@ useEffect(() => {
             {/* Quick chips */}
             <div className="mt-4 flex gap-2">
               {[25, 50, 100].map((n) => (
-                <button key={n} onClick={() => setAmount(Math.min(n, unlocked))} className="px-3 py-1.5 rounded-full bg-gray-100 text-sm">
+                <button
+                  key={n}
+                  onClick={() => setAmount(Math.min(n, unlocked))}
+                  className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+                >
                   ${n}
                 </button>
               ))}
-              <button onClick={() => setAmount(unlocked)} className="px-3 py-1.5 rounded-full bg-gray-100 text-sm">
+              <button
+                onClick={() => setAmount(unlocked)}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
                 Max
               </button>
             </div>
@@ -788,7 +815,13 @@ useEffect(() => {
             {mode === "vault" && (
               <div className="mt-4">
                 <label className="text-sm text-gray-600">To vault</label>
-                <select value={toVaultId} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setToVaultId(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2 outline-none">
+                <select
+                  value={toVaultId}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                    setToVaultId(e.target.value)
+                  }
+                  className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
+                >
                   {otherVaults.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
@@ -806,15 +839,18 @@ useEffect(() => {
                 disabled={amount <= 0 || amount > unlocked || (mode === "vault" && !toVaultId)}
                 onClick={() => {
                   if (amount <= 0 || amount > unlocked) return;
-                  if (mode === "bank") onTransferToBank(amount);
-                  else {
+                  if (mode === "bank") {
+                    onTransferToBank(amount);
+                  } else {
                     if (!toVaultId) return;
                     onTransferBetween(amount, toVaultId);
                   }
                   onClose();
                 }}
                 className={`py-3 rounded-xl text-white ${
-                  amount > 0 && amount <= unlocked && (mode === "bank" || toVaultId) ? "bg-emerald-600" : "bg-gray-300"
+                  amount > 0 && amount <= unlocked && (mode === "bank" || toVaultId)
+                    ? "bg-emerald-600"
+                    : "bg-gray-300"
                 }`}
               >
                 {mode === "bank" ? "Transfer to bank" : "Transfer to vault"}
@@ -826,6 +862,7 @@ useEffect(() => {
     </AnimatePresence>
   );
 }
+
 
 // ------------- Lock Modal (status + actions) -------------
 function LockModal({
