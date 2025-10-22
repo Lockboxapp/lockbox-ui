@@ -182,12 +182,14 @@ export default function LockBoxApp() {
               <div className="text-xs text-gray-500">with The Banker</div>
             </div>
           </div>
-          <button
-            onClick={() => setShowGoal(true)}
-            className="text-xs px-3 py-1.5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition"
-          >
-            Demo Win
-          </button>
+          <motion.button
+  whileTap={{ scale: 0.9 }}
+  onClick={() => setSettingsOpen(true)}
+  className="p-2 rounded-full hover:bg-gray-100 transition"
+  aria-label="Open settings"
+>
+  <Menu className="h-5 w-5 text-gray-700" />
+</motion.button>
         </div>
       </header>
 
