@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PiggyBank,
@@ -12,11 +12,13 @@ import {
   Star,
   Sparkles,
   ChevronRight,
+  Plus,
+  ArrowRightLeft,
 } from "lucide-react";
 
-/* -------------------------------
-   Types
---------------------------------*/
+/* =========================================
+   Types & Small UI helpers
+========================================= */
 type Vault = {
   id: string;
   name: string;
@@ -29,9 +31,6 @@ type Vault = {
 
 type TabKey = "home" | "vaults" | "banker" | "rewards";
 
-/* -------------------------------
-   Helpers
---------------------------------*/
 const currency = (n: number) =>
   n.toLocaleString(undefined, {
     style: "currency",
@@ -64,23 +63,14 @@ function Card({
   );
 }
 
-/** Typed haptic helper (no `any`) */
-type VibrateNavigator = Navigator & {
-  vibrate?: (pattern: number | number[]) => boolean;
-};
-function haptic(pattern: number | number[] = 35) {
-  if (typeof window === "undefined") return;
-  const nav = window.navigator as VibrateNavigator;
-  if (typeof nav.vibrate === "function") nav.vibrate(pattern);
-}
-
-/* -------------------------------
+/* =========================================
    Main App
---------------------------------*/
+========================================= */
 export default function LockBoxApp() {
   const [tab, setTab] = useState<TabKey>("home");
   const [showGoal, setShowGoal] = useState(false);
 
+  // Vaults
   const [vaults, setVaults] = useState<Vault[]>([
     {
       id: "rent",
@@ -102,6 +92,14 @@ export default function LockBoxApp() {
     },
   ]);
 
+  // Modals
+  const [showTransfer, setShowTransfer] = useState<null | { id: string }>(null);
+  const [lockModal, setLockModal] = useState<null | { vaultId: string }>(null);
+  const [addFundsModal, setAddFundsModal] = useState<null | { vaultId: string }>(
+    null
+  );
+  const [newVaultModal, setNewVaultModal] = useState(false);
+
   const totalSaved = useMemo(
     () => vaults.reduce((a, v) => a + v.saved, 0),
     [vaults]
@@ -109,15 +107,64 @@ export default function LockBoxApp() {
 
   function toggleVaultLock(vaultId: string) {
     setVaults((prev) =>
+      prev.map((v) => (v.id === vaultId ? { ...v, isLocked: !v.isLocked } : v))
+    );
+  }
+
+  /* ---- Money helpers ---- */
+  function addFunds(vaultId: string, amount: number) {
+    setVaults((prev) =>
       prev.map((v) =>
-        v.id === vaultId ? { ...v, isLocked: !v.isLocked } : v
+        v.id === vaultId
+          ? { ...v, saved: Math.min(v.target, v.saved + Math.max(0, amount)) }
+          : v
       )
     );
   }
 
-  /* -------------------------------
-     UI
-  --------------------------------*/
+  function lockFunds(vaultId: string, amount: number) {
+    setVaults((prev) =>
+      prev.map((v) => {
+        if (v.id !== vaultId) return v;
+        const lockable = Math.max(0, v.saved - v.locked);
+        const amt = Math.max(0, Math.min(amount, lockable));
+        if (amt === 0) return v;
+        return { ...v, locked: Math.min(v.target, v.locked + amt) };
+      })
+    );
+  }
+
+  function withdrawToBank(vaultId: string, amount: number) {
+    setVaults((prev) =>
+      prev.map((v) => {
+        if (v.id !== vaultId) return v;
+        const unlocked = Math.max(0, v.saved - v.locked);
+        const amt = Math.max(0, Math.min(amount, unlocked));
+        if (amt === 0) return v;
+        return { ...v, saved: Math.max(0, v.saved - amt) };
+      })
+    );
+  }
+
+  function moveBetweenVaults(fromId: string, toId: string, amount: number) {
+    if (fromId === toId) return;
+    setVaults((prev) => {
+      const from = prev.find((v) => v.id === fromId);
+      const to = prev.find((v) => v.id === toId);
+      if (!from || !to) return prev;
+
+      const unlocked = Math.max(0, from.saved - from.locked);
+      const amt = Math.max(0, Math.min(amount, unlocked));
+      if (amt === 0) return prev;
+
+      return prev.map((v) => {
+        if (v.id === fromId) return { ...v, saved: Math.max(0, v.saved - amt) };
+        if (v.id === toId) return { ...v, saved: Math.min(v.target, v.saved + amt) };
+        return v;
+      });
+    });
+  }
+
   return (
     <div className="min-h-screen w-full bg-white text-gray-900">
       {/* Header */}
@@ -141,7 +188,7 @@ export default function LockBoxApp() {
         </div>
       </header>
 
-      {/* Tabs */}
+      {/* Content */}
       <main className="mx-auto max-w-md pb-24">
         {tab === "home" && (
           <div className="px-4 py-5 space-y-12">
@@ -171,9 +218,7 @@ export default function LockBoxApp() {
                     <span className="text-sm opacity-80">Total saved</span>
                     <Wallet className="h-4 w-4 opacity-80" />
                   </div>
-                  <div className="text-2xl font-bold">
-                    {currency(totalSaved)}
-                  </div>
+                  <div className="text-2xl font-bold">{currency(totalSaved)}</div>
                 </Card>
               </div>
             </section>
@@ -183,6 +228,7 @@ export default function LockBoxApp() {
         {tab === "vaults" && (
           <div className="px-4 py-5 space-y-5">
             <h2 className="text-2xl font-semibold">Vaults</h2>
+
             {vaults.map((v) => {
               const pct = (v.saved / v.target) * 100;
               return (
@@ -204,6 +250,7 @@ export default function LockBoxApp() {
                     <Progress value={pct} />
                   </div>
 
+                  {/* Actions */}
                   <div className="mt-3 flex items-center justify-between">
                     <div className="text-sm text-gray-600">
                       Saved:{" "}
@@ -212,39 +259,64 @@ export default function LockBoxApp() {
                       </span>
                     </div>
 
-                    {/* Raised lock button */}
-                    <motion.button
-                      whileTap={{ scale: 0.88 }}
-                      animate={{
-                        scale: 1,
-                        boxShadow: v.isLocked
-                          ? "0 3px 5px rgba(0,0,0,0.25)"
-                          : "inset 0 2px 4px rgba(0,0,0,0.15)",
-                        backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
-                      }}
-                      transition={{
-                        type: "spring",
-                        stiffness: 260,
-                        damping: 18,
-                      }}
-                      onClick={() => {
-                        haptic(35);
-                        toggleVaultLock(v.id);
-                      }}
-                      className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
-                      aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
-                      title={v.isLocked ? "Toggle to unlock view" : "Toggle to lock view"}
-                    >
-                      {v.isLocked ? (
-                        <Lock className="h-4 w-4 text-gray-600" />
-                      ) : (
-                        <Unlock className="h-4 w-4 text-emerald-600" />
-                      )}
-                    </motion.button>
+                    <div className="flex items-center gap-2">
+                      {/* Transfer (to bank or between vaults) */}
+                      <motion.button
+                        whileTap={{ scale: 0.96 }}
+                        onClick={() => setShowTransfer({ id: v.id })}
+                        className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1 bg-gray-900 text-white"
+                      >
+                        <ArrowRightLeft className="h-4 w-4" /> Transfer
+                      </motion.button>
+
+                      {/* Add Funds */}
+                      <motion.button
+                        whileTap={{ scale: 0.96 }}
+                        onClick={() => setAddFundsModal({ vaultId: v.id })}
+                        className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1 bg-emerald-600 text-white"
+                      >
+                        <Plus className="h-4 w-4" /> Add funds
+                      </motion.button>
+
+                      {/* Raised lock square (tap toggle; double-tap opens Lock Funds) */}
+                      <motion.button
+                        whileTap={{ scale: 0.88 }}
+                        animate={{
+                          scale: 1,
+                          boxShadow: v.isLocked
+                            ? "0 3px 5px rgba(0,0,0,0.25)"
+                            : "inset 0 2px 4px rgba(0,0,0,0.15)",
+                          backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
+                        }}
+                        transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                        onClick={() => toggleVaultLock(v.id)}
+                        onDoubleClick={() => setLockModal({ vaultId: v.id })}
+                        className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
+                        aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
+                        title="Tap to toggle; double-tap to lock amount"
+                      >
+                        {v.isLocked ? (
+                          <Lock className="h-4 w-4 text-gray-600" />
+                        ) : (
+                          <Unlock className="h-4 w-4 text-emerald-600" />
+                        )}
+                      </motion.button>
+                    </div>
                   </div>
                 </Card>
               );
             })}
+
+            {/* Create a new vault */}
+            <Card className="p-4 border-dashed">
+              <motion.button
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setNewVaultModal(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-50 hover:bg-gray-100"
+              >
+                <Plus className="h-5 w-5" /> Create a new vault
+              </motion.button>
+            </Card>
           </div>
         )}
 
@@ -298,14 +370,586 @@ export default function LockBoxApp() {
         </div>
       </nav>
 
+      {/* Modals */}
+      <TransferModal
+        open={Boolean(showTransfer)}
+        onClose={() => setShowTransfer(null)}
+        sourceVault={
+          showTransfer ? vaults.find((v) => v.id === showTransfer.id) ?? null : null
+        }
+        vaults={vaults}
+        onTransferToBank={(amount) => {
+          const id = showTransfer?.id;
+          if (!id) return;
+          withdrawToBank(id, amount);
+        }}
+        onTransferBetween={(amount, toId) => {
+          const id = showTransfer?.id;
+          if (!id) return;
+          moveBetweenVaults(id, toId, amount);
+        }}
+      />
+
+      <AddFundsModal
+        open={Boolean(addFundsModal)}
+        onClose={() => setAddFundsModal(null)}
+        vault={
+          addFundsModal
+            ? vaults.find((v) => v.id === addFundsModal.vaultId) ?? null
+            : null
+        }
+        onSubmit={(amount) => {
+          if (!addFundsModal) return;
+          addFunds(addFundsModal.vaultId, amount);
+          setAddFundsModal(null);
+        }}
+      />
+
+      <LockModal
+        open={Boolean(lockModal)}
+        onClose={() => setLockModal(null)}
+        vault={lockModal ? vaults.find((v) => v.id === lockModal.vaultId) ?? null : null}
+        onSubmit={(amount) => {
+          if (!lockModal) return;
+          lockFunds(lockModal.vaultId, amount);
+          setLockModal(null);
+        }}
+      />
+
+      <NewVaultModal
+        open={newVaultModal}
+        onClose={() => setNewVaultModal(false)}
+        onCreate={(payload) => {
+          const id = `vault-${Date.now()}`;
+          setVaults((v) => [
+            ...v,
+            {
+              id,
+              name: payload.name,
+              target: payload.target,
+              saved: 0,
+              locked: 0,
+              dueDays: payload.dueDays,
+              isLocked: false,
+            },
+          ]);
+          setNewVaultModal(false);
+        }}
+      />
+
+      {/* Celebrate modal */}
       <GoalAchieved open={showGoal} onClose={() => setShowGoal(false)} />
     </div>
   );
 }
 
-/* -------------------------------
-   Goal Achieved Modal
---------------------------------*/
+/* =========================================
+   Modals
+========================================= */
+function TransferModal({
+  open,
+  onClose,
+  sourceVault,
+  vaults,
+  onTransferToBank,
+  onTransferBetween,
+}: {
+  open: boolean;
+  onClose: () => void;
+  sourceVault: Vault | null;
+  vaults: Vault[];
+  onTransferToBank: (amount: number) => void;
+  onTransferBetween: (amount: number, toVaultId: string) => void;
+}) {
+  // Hooks must always be called (even if we return null later)
+  const [mode, setMode] = useState<"bank" | "vault">("bank");
+  const [amount, setAmount] = useState(100);
+  const [toVaultId, setToVaultId] = useState<string>("");
+
+  if (!open || !sourceVault) return null;
+
+  const unlocked = Math.max(0, sourceVault.saved - sourceVault.locked);
+  const otherVaults = vaults.filter((v) => v.id !== sourceVault.id);
+  const effectiveToId = toVaultId || (otherVaults[0]?.id ?? "");
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Transfer</div>
+          <div className="text-sm text-gray-500 mb-1">
+            From: <span className="font-medium text-gray-800">{sourceVault.name}</span>
+          </div>
+          <div className="text-xs text-gray-500 mb-4">
+            Available from unlocked: <b>${unlocked}</b>
+          </div>
+
+          {/* Mode switch */}
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setMode("bank")}
+              className={`py-2 rounded-xl border ${
+                mode === "bank" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+              }`}
+            >
+              To bank
+            </button>
+            <button
+              onClick={() => setMode("vault")}
+              className={`py-2 rounded-xl border ${
+                mode === "vault" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+              }`}
+            >
+              Between vaults
+            </button>
+          </div>
+
+          {/* Amount */}
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              max={unlocked}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          {/* Quick chips */}
+          <div className="mt-4 flex gap-2">
+            {[25, 50, 100].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAmount(Math.min(n, unlocked))}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
+                ${n}
+              </button>
+            ))}
+            <button
+              onClick={() => setAmount(unlocked)}
+              className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+            >
+              Max
+            </button>
+          </div>
+
+          {/* Destination (if moving between vaults) */}
+          {mode === "vault" && (
+            <div className="mt-4">
+              <label className="text-sm text-gray-600">To vault</label>
+              <select
+                value={effectiveToId}
+                onChange={(e) => setToVaultId(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
+              >
+                {otherVaults.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={
+                amount <= 0 ||
+                amount > unlocked ||
+                (mode === "vault" && !effectiveToId)
+              }
+              onClick={() => {
+                if (amount <= 0 || amount > unlocked) return;
+                if (mode === "bank") onTransferToBank(amount);
+                else onTransferBetween(amount, effectiveToId);
+                onClose();
+              }}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 && amount <= unlocked && (mode === "bank" || effectiveToId)
+                  ? "bg-emerald-600"
+                  : "bg-gray-300"
+              }`}
+            >
+              {mode === "bank" ? "Transfer to bank" : "Transfer to vault"}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function AddFundsModal({
+  open,
+  onClose,
+  vault,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  onSubmit: (amount: number) => void;
+}) {
+  const [amount, setAmount] = useState(50);
+  if (!open || !vault) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Add funds</div>
+          <div className="text-sm text-gray-500 mb-3">
+            Add money to “{vault.name}”.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            {[25, 50, 100].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAmount(n)}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
+                ${n}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={amount <= 0}
+              onClick={() => onSubmit(amount)}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 ? "bg-emerald-600" : "bg-gray-300"
+              }`}
+            >
+              Add
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function LockModal({
+  open,
+  onClose,
+  vault,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  onSubmit: (amount: number) => void;
+}) {
+  const [amount, setAmount] = useState(100);
+  if (!open || !vault) return null;
+  const lockable = Math.max(0, vault.saved - vault.locked);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Lock funds</div>
+          <div className="text-sm text-gray-500 mb-3">
+            Lock up to <b>${lockable}</b> in “{vault.name}”.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              max={lockable}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            {[50, 100, 250].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAmount(Math.min(n, lockable))}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
+                ${n}
+              </button>
+            ))}
+            <button
+              onClick={() => setAmount(lockable)}
+              className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+            >
+              Max
+            </button>
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={amount <= 0 || amount > lockable}
+              onClick={() => onSubmit(amount)}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 && amount <= lockable ? "bg-emerald-600" : "bg-gray-300"
+              }`}
+            >
+              Lock
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function NewVaultModal({
+  open,
+  onClose,
+  onCreate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (payload: { name: string; target: number; dueDays: number | null }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState(500);
+  const [dueDays, setDueDays] = useState<number | "none">(30);
+
+  if (!open) return null;
+  const canSave = name.trim().length > 0 && target > 0;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Create new vault</div>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm text-gray-600">Vault name</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Rent safe-deposit box"
+                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Goal amount</label>
+              <div className="flex items-center rounded-xl border px-3 py-2">
+                <span className="text-gray-500 mr-1">$</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={target}
+                  onChange={(e) => setTarget(Number(e.target.value || 0))}
+                  className="w-full outline-none py-2"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm text-gray-600">Due in (days)</label>
+              <select
+                value={dueDays}
+                onChange={(e) =>
+                  setDueDays(e.target.value === "none" ? "none" : Number(e.target.value))
+                }
+                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
+              >
+                <option value="none">No due date</option>
+                <option value={7}>7 days</option>
+                <option value={14}>14 days</option>
+                <option value={30}>30 days</option>
+                <option value={60}>60 days</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={!canSave}
+              onClick={() =>
+                onCreate({
+                  name: name.trim(),
+                  target,
+                  dueDays: dueDays === "none" ? null : (dueDays as number),
+                })
+              }
+              className={`py-3 rounded-xl text-white ${
+                canSave ? "bg-emerald-600" : "bg-gray-300"
+              }`}
+            >
+              Create
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* =========================================
+   Banker & Rewards (unchanged basics)
+========================================= */
+function BankerChat() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<
+    Array<{ role: "banker" | "user"; text: string }>
+  >([
+    {
+      role: "banker",
+      text: "You spent $40 on pizza yesterday. I'm not upset. I'm just… disappointed.",
+    },
+    {
+      role: "banker",
+      text: "That's 40% of what you saved in your Rent safe deposit box last month.",
+    },
+  ]);
+
+  const send = () => {
+    if (!input.trim()) return;
+    setMessages((m) => [...m, { role: "user", text: input.trim() }]);
+    setInput("");
+    setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        { role: "banker", text: "Let's redirect that energy into your vault." },
+      ]);
+    }, 600);
+  };
+
+  return (
+    <div className="px-4 py-5">
+      <div className="text-2xl font-semibold mb-4">The Banker</div>
+      <div className="space-y-3 mb-20">
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[78%] rounded-2xl px-4 py-2 text-[15px] ${
+                m.role === "user"
+                  ? "bg-gray-900 text-white"
+                  : "bg-gray-100 text-gray-900"
+              }`}
+            >
+              {m.text}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="fixed bottom-16 left-0 right-0">
+        <div className="mx-auto max-w-md px-4">
+          <Card className="p-2 flex items-center gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Message The Banker"
+              className="flex-1 px-3 py-2 outline-none"
+            />
+            <button
+              onClick={send}
+              className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm"
+            >
+              Send
+            </button>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Rewards() {
+  return (
+    <div className="px-4 py-5 space-y-4">
+      <h2 className="text-2xl font-semibold">Rewards</h2>
+      <Card className="p-5 bg-[#0E3559] text-white">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-white/10 grid place-items-center">
+            <Star className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="font-semibold text-lg">Goal streak</div>
+            <div className="text-sm text-white/80">
+              Hit 3 goals this month to earn a badge
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* =========================================
+   Celebrate modal
+========================================= */
 function GoalAchieved({
   open,
   onClose,
@@ -345,104 +989,5 @@ function GoalAchieved({
         </motion.div>
       )}
     </AnimatePresence>
-  );
-}
-
-/* -------------------------------
-   Banker Chat
---------------------------------*/
-function BankerChat() {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<
-    Array<{ role: "banker" | "user"; text: string }>
-  >([
-    {
-      role: "banker",
-      text: "You spent $40 on pizza yesterday. I'm not upset. I'm just… disappointed.",
-    },
-    {
-      role: "banker",
-      text: "That's 40% of what you saved in your Rent safe deposit box last month.",
-    },
-  ]);
-
-  const send = () => {
-    if (!input.trim()) return;
-    setMessages((m) => [...m, { role: "user", text: input.trim() }]);
-    setInput("");
-    setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        { role: "banker", text: "Let's redirect that energy into your vault." },
-      ]);
-    }, 600);
-  };
-
-  return (
-    <div className="px-4 py-5">
-      <div className="text-2xl font-semibold mb-4">The Banker</div>
-      <div className="space-y-3 mb-20">
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${
-              m.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`max-w-[78%] rounded-2xl px-4 py-2 text-[15px] ${
-                m.role === "user"
-                  ? "bg-gray-900 text-white"
-                  : "bg-gray-100 text-gray-900"
-              }`}
-            >
-              {m.text}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="fixed bottom-16 left-0 right-0">
-        <div className="mx-auto max-w-md px-4">
-          <Card className="p-2 flex items-center gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Message The Banker"
-              className="flex-1 px-3 py-2 outline-none"
-            />
-            <button
-              onClick={send}
-              className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm"
-            >
-              Send
-            </button>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* -------------------------------
-   Rewards Tab
---------------------------------*/
-function Rewards() {
-  return (
-    <div className="px-4 py-5 space-y-4">
-      <h2 className="text-2xl font-semibold">Rewards</h2>
-      <Card className="p-5 bg-[#0E3559] text-white">
-        <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-2xl bg-white/10 grid place-items-center">
-            <Star className="h-6 w-6" />
-          </div>
-          <div>
-            <div className="font-semibold text-lg">Goal streak</div>
-            <div className="text-sm text-white/80">
-              Hit 3 goals this month to earn a badge
-            </div>
-          </div>
-        </div>
-      </Card>
-    </div>
   );
 }
