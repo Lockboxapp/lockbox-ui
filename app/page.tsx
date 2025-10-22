@@ -8,7 +8,6 @@ import {
   Wallet,
   MessageSquare,
   Home,
-  Lock,
   Star,
   Sparkles,
   ChevronRight,
