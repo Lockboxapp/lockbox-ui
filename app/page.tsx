@@ -441,7 +441,7 @@ export default function LockBoxApp() {
           setNewVaultModal(false);
         }}
       />
-
+<SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       {/* Celebrate modal */}
       <GoalAchieved open={showGoal} onClose={() => setShowGoal(false)} />
     </div>
