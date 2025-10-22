@@ -37,7 +37,6 @@ const currency = (n: number) =>
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
-    currency: "USD",
   });
 
 function Progress({ value }: { value: number }) {
