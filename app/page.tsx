@@ -1,5 +1,5 @@
 "use client";
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PiggyBank,
@@ -78,7 +78,8 @@ function LockIndicator({ active, onOpen }: { active: boolean; onOpen: () => void
       type="button"
       onClick={() => {
         if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-          (navigator as any).vibrate(30);
+  navigator.vibrate?.(30);
+}
         }
         onOpen();
       }}
@@ -708,6 +709,19 @@ function TransferModal({
   const [mode, setMode] = useState<"bank" | "vault">("bank");
   const [amount, setAmount] = useState(100);
   const [toVaultId, setToVaultId] = useState<string>("");
+  const sourceId = sourceVault?.id ?? "";
+  const otherVaults = React.useMemo(
+  () => vaults.filter(v => v.id !== sourceId),
+  [vaults, sourceId]
+);
+
+useEffect(() => {
+  // safe: this runs every render in the same order, but exits early if not ready
+  if (mode !== "vault") return;
+  if (!toVaultId && otherVaults.length > 0) {
+    setToVaultId(otherVaults[0].id);
+  }
+}, [mode, otherVaults, toVaultId]);
 
   if (!sourceVault) return null;
 
@@ -746,7 +760,7 @@ function TransferModal({
               <span className="text-gray-500 mr-1">$</span>
               <input
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value || 0))}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
                 type="number"
                 min={0}
                 max={unlocked}
@@ -770,7 +784,7 @@ function TransferModal({
             {mode === "vault" && (
               <div className="mt-4">
                 <label className="text-sm text-gray-600">To vault</label>
-                <select value={toVaultId} onChange={(e) => setToVaultId(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2 outline-none">
+                <select value={toVaultId} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setToVaultId(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2 outline-none">
                   {otherVaults.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.name}
@@ -853,7 +867,7 @@ function LockModal({
                   <span className="text-gray-500 mr-1">$</span>
                   <input
                     value={amount}
-                    onChange={(e) => setAmount(Number(e.target.value || 0))}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
                     type="number"
                     min={0}
                     max={lockable}
@@ -868,7 +882,7 @@ function LockModal({
                   <span className="text-gray-500 mr-1">$</span>
                   <input
                     value={amount}
-                    onChange={(e) => setAmount(Number(e.target.value || 0))}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
                     type="number"
                     min={0}
                     max={vault.locked}
@@ -877,7 +891,7 @@ function LockModal({
                 </div>
                 <textarea
                   value={reason}
-                  onChange={(e) => setReason(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
                   placeholder="Reason for unlock..."
                   className="w-full rounded-xl border px-3 py-2 text-sm outline-none mb-2"
                 />
@@ -891,7 +905,9 @@ function LockModal({
               {!isLocked ? (
                 <button
                   onClick={() => {
-                    if (typeof navigator !== "undefined" && "vibrate" in navigator) (navigator as any).vibrate(50);
+                    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+  navigator.vibrate?.(30);
+}
                     onLockNow(vault.id);
                     onClose();
                   }}
@@ -904,7 +920,9 @@ function LockModal({
                 <button
                   onClick={() => {
                     if (amount <= 0) return;
-                    if (typeof navigator !== "undefined" && "vibrate" in navigator) (navigator as any).vibrate(50);
+                    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+  navigator.vibrate?.(30);
+}
                     onRequestUnlock(vault.id, amount, reason);
                     onClose();
                   }}
