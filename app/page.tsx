@@ -71,6 +71,7 @@ function Card({
 export default function LockBoxApp() {
   const [tab, setTab] = useState<TabKey>("home");
   const [showGoal, setShowGoal] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Vaults
   const [vaults, setVaults] = useState<Vault[]>([
