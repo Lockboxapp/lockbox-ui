@@ -12,15 +12,6 @@ import {
   Star,
   Sparkles,
   ChevronRight,
-  Plus,
-  ArrowRightLeft,
-  PlayCircle,
-  CheckCircle2,
-  Banknote,
-  Users,
-  Clock,
-  Check,
-  CircleSlash,
 } from "lucide-react";
 
 /* -------------------------------
@@ -46,6 +37,7 @@ const currency = (n: number) =>
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
+    currency: "USD",
   });
 
 function Progress({ value }: { value: number }) {
@@ -73,13 +65,22 @@ function Card({
   );
 }
 
+/** Typed haptic helper (no `any`) */
+type VibrateNavigator = Navigator & {
+  vibrate?: (pattern: number | number[]) => boolean;
+};
+function haptic(pattern: number | number[] = 35) {
+  if (typeof window === "undefined") return;
+  const nav = window.navigator as VibrateNavigator;
+  if (typeof nav.vibrate === "function") nav.vibrate(pattern);
+}
+
 /* -------------------------------
    Main App
 --------------------------------*/
 export default function LockBoxApp() {
   const [tab, setTab] = useState<TabKey>("home");
   const [showGoal, setShowGoal] = useState(false);
-  const [showTransfer, setShowTransfer] = useState<null | { id: string }>(null);
 
   const [vaults, setVaults] = useState<Vault[]>([
     {
@@ -192,9 +193,7 @@ export default function LockBoxApp() {
                       <div className="font-semibold">{v.name}</div>
                       <div className="text-sm text-gray-500">
                         {currency(v.target)}
-                        {v.dueDays
-                          ? ` due in ${v.dueDays} days`
-                          : " target"}
+                        {v.dueDays ? ` due in ${v.dueDays} days` : " target"}
                       </div>
                     </div>
                     <div className="text-right text-sm text-gray-500">
@@ -222,9 +221,7 @@ export default function LockBoxApp() {
                         boxShadow: v.isLocked
                           ? "0 3px 5px rgba(0,0,0,0.25)"
                           : "inset 0 2px 4px rgba(0,0,0,0.15)",
-                        backgroundColor: v.isLocked
-                          ? "#f3f4f6"
-                          : "#d1fae5",
+                        backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
                       }}
                       transition={{
                         type: "spring",
@@ -232,16 +229,12 @@ export default function LockBoxApp() {
                         damping: 18,
                       }}
                       onClick={() => {
-                        if (
-                          typeof navigator !== "undefined" &&
-                          "vibrate" in navigator &&
-                          typeof (navigator as any).vibrate === "function"
-                        ) {
-                          (navigator as any).vibrate(35);
-                        }
+                        haptic(35);
                         toggleVaultLock(v.id);
                       }}
                       className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
+                      aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
+                      title={v.isLocked ? "Toggle to unlock view" : "Toggle to lock view"}
                     >
                       {v.isLocked ? (
                         <Lock className="h-4 w-4 text-gray-600" />
@@ -263,7 +256,7 @@ export default function LockBoxApp() {
       {/* Bottom Nav */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-gray-100">
         <div className="mx-auto max-w-md grid grid-cols-4">
-          {["home", "vaults", "banker", "rewards"].map((key) => {
+          {(["home", "vaults", "banker", "rewards"] as TabKey[]).map((key) => {
             const label =
               key === "home"
                 ? "Home"
@@ -283,7 +276,7 @@ export default function LockBoxApp() {
             return (
               <button
                 key={key}
-                onClick={() => setTab(key as TabKey)}
+                onClick={() => setTab(key)}
                 className="py-3 flex flex-col items-center gap-1"
               >
                 <Icon
@@ -381,10 +374,7 @@ function BankerChat() {
     setTimeout(() => {
       setMessages((m) => [
         ...m,
-        {
-          role: "banker",
-          text: "Let's redirect that energy into your vault.",
-        },
+        { role: "banker", text: "Let's redirect that energy into your vault." },
       ]);
     }, 600);
   };
