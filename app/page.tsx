@@ -77,12 +77,16 @@ function LockIndicator({ active, onOpen }: { active: boolean; onOpen: () => void
     <motion.button
       type="button"
       onClick={() => {
-        if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-  navigator.vibrate?.(30);
-}
-        }
-        onOpen();
-      }}
+  if (
+    typeof navigator !== "undefined" &&
+    "vibrate" in navigator &&
+    typeof (navigator as any).vibrate === "function"
+  ) {
+    (navigator as any).vibrate(30);
+  }
+  onOpen();
+}}
+
       whileTap={{ scale: 0.88 }}
       initial={false}
       animate={active ? { scale: [1, 1.12, 1] } : { scale: 1 }}
