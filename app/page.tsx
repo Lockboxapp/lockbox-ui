@@ -2,6 +2,8 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  Menu,
+  X,
   PiggyBank,
   Shield,
   Wallet,
