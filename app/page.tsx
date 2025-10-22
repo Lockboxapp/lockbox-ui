@@ -450,12 +450,8 @@ Or view the request online:
     }}
     transition={{ type: "spring", stiffness: 250, damping: 20 }}
     onClick={() => {
-      if (
-        typeof navigator !== "undefined" &&
-        "vibrate" in navigator &&
-        typeof (navigator as any).vibrate === "function"
-      ) {
-        (navigator as any).vibrate(30);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+  navigator.vibrate?.(30);
       }
       toggleVaultLock(v.id);
     }}
