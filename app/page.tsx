@@ -1,5 +1,4 @@
 "use client";
-import { motion } from "framer-motion";
 import { Lock, Unlock } from "lucide-react";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
