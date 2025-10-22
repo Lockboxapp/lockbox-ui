@@ -130,10 +130,10 @@ export default function LockBoxApp() {
   const [newVaultOpen, setNewVaultOpen] = useState(false);
 
   // Mock vaults
-  const [vaults, setVaults] = useState<Vault[]>([
-    { id: "rent", name: "Rent safe-deposit box", target: 1500, locked: 900, saved: 1200, dueDays: 8 },
-    { id: "emergency", name: "Emergency fund", target: 2000, locked: 0, saved: 850, dueDays: null },
-  ]);
+  const [vaults, setVaults] = useState([
+  { id: "rent", name: "Rent safe-deposit box", target: 1500, locked: 900, saved: 1200, dueDays: 8, isLocked: true },
+  { id: "emergency", name: "Emergency Fund", target: 2000, locked: 0, saved: 850, isLocked: false },
+]);
 
   const totalSaved = useMemo(() => vaults.reduce((a, v) => a + v.saved, 0), [vaults]);
 
