@@ -1,4 +1,6 @@
 "use client";
+import { motion } from "framer-motion";
+import { Lock, Unlock } from "lucide-react";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -429,6 +431,45 @@ Or view the request online:
                           />
                           <span>{currency(v.locked)} locked</span>
                         </div>
+{/* Locked funds display */}
+<div className="flex items-center justify-between mt-3">
+  <div className="text-sm text-gray-600">
+    Locked:
+    <span className="font-medium text-gray-900 ml-1">
+      {currency(v.locked)}
+    </span>
+  </div>
+
+  <motion.button
+    whileTap={{ scale: 0.92 }}
+    initial={false}
+    animate={{
+      scale: 1,
+      boxShadow: v.isLocked
+        ? "0 2px 4px rgba(0,0,0,0.15)"
+        : "inset 0 2px 4px rgba(0,0,0,0.15)",
+      backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
+    }}
+    transition={{ type: "spring", stiffness: 250, damping: 20 }}
+    onClick={() => {
+      if (
+        typeof navigator !== "undefined" &&
+        "vibrate" in navigator &&
+        typeof (navigator as any).vibrate === "function"
+      ) {
+        (navigator as any).vibrate(30);
+      }
+      toggleVaultLock(v.id);
+    }}
+    className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer"
+  >
+    {v.isLocked ? (
+      <Lock className="h-4 w-4 text-gray-600" />
+    ) : (
+      <Unlock className="h-4 w-4 text-emerald-600" />
+    )}
+  </motion.button>
+</div>
                       </div>
                     </div>
 
