@@ -77,12 +77,8 @@ function LockIndicator({ active, onOpen }: { active: boolean; onOpen: () => void
     <motion.button
       type="button"
       onClick={() => {
-  if (
-    typeof navigator !== "undefined" &&
-    "vibrate" in navigator &&
-    typeof (navigator as any).vibrate === "function"
-  ) {
-    (navigator as any).vibrate(30);
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+  navigator.vibrate?.(30);
   }
   onOpen();
 }}
