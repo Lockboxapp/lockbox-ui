@@ -39,6 +39,19 @@ type Vault = {
   isLocked: boolean;
 };
 
+type UnlockRequest = {
+  id: string;
+  vaultId: string;
+  amount: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt: number;
+  code: string;
+};
+
+const genApprovalCode = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+
 type TabKey = "home" | "vaults" | "banker" | "rewards";
 
 const currency = (n: number) =>
@@ -122,6 +135,10 @@ const [budgets, setBudgets] = useState<{ rent: number; emergency: number; spendi
     null
   );
   const [newVaultModal, setNewVaultModal] = useState(false);
+  // Keyholder unlock flow
+const [requests, setRequests] = useState<UnlockRequest[]>([]);
+const [unlockModal, setUnlockModal] = useState<null | { vaultId: string }>(null);
+
 
   const totalSaved = useMemo(
     () => vaults.reduce((a, v) => a + v.saved, 0),
@@ -188,6 +205,81 @@ const [budgets, setBudgets] = useState<{ rent: number; emergency: number; spendi
     });
   }
 
+  function sendKeyholderNotification(req: {
+  id: string;
+  vaultId: string;
+  amount: number;
+  reason: string;
+  code: string;
+  link: string;
+}) {
+  const message = `
+📩 LockBox Notification
+
+The user requested an early unlock of $${req.amount} from "${req.vaultId}".
+Reason: "${req.reason || "No reason provided."}"
+
+Approve or reject:
+👉 ${req.link}
+
+If approved, share this code with them so they can unlock immediately:
+🔐 Code: ${req.code}
+`.trim();
+
+  console.log("📱 Simulated Keyholder SMS:", message);
+  alert("Simulated SMS to Keyholder sent.\nOpen the browser console to copy the link.");
+}
+
+function submitUnlockRequest(vaultId: string, amount: number, reason: string) {
+  const code = genApprovalCode();
+  const req: UnlockRequest = {
+    id: `${Date.now()}`,
+    vaultId,
+    amount,
+    reason,
+    status: requests ? "pending" : "pending",
+    createdAt: Date.now(),
+    code,
+  };
+
+  setRequests((r) => [req, ...r]);
+
+  // Build deep link for a (future) Keyholder web page (or same app route if you add it)
+  if (typeof window !== "undefined") {
+    const v = vaults.find((x) => x.id === vaultId);
+    const qp = new URLSearchParams({
+      vault: vaultId,
+      name: v?.name || "Vault",
+      amount: String(amount),
+      reason: reason || "",
+      code,
+    });
+    sendKeyholderNotification({
+      id: req.id,
+      vaultId,
+      amount,
+      reason,
+      code,
+      link: `${window.location.origin}/keyholder?${qp.toString()}`,
+    });
+  }
+}
+
+// Demo-only helpers to flip status (optional)
+function simulateApprove(id: string) {
+  const req = requests.find((r) => r.id === id);
+  if (!req) return;
+  setRequests((all) => all.map((r) => (r.id === id ? { ...r, status: "approved" } : r)));
+  setVaults((prev) =>
+    prev.map((v) =>
+      v.id === req.vaultId ? { ...v, locked: Math.max(0, v.locked - req.amount) } : v
+    )
+  );
+}
+function simulateReject(id: string) {
+  setRequests((all) => all.map((r) => (r.id === id ? { ...r, status: "rejected" } : r)));
+}
+  
   return (
     <div className="min-h-screen w-full bg-white text-gray-900">
       {/* Header */}
@@ -305,21 +397,27 @@ const [budgets, setBudgets] = useState<{ rent: number; emergency: number; spendi
 
                       {/* Raised lock square (tap toggle; double-tap opens Lock Funds) */}
                       <motion.button
-                        whileTap={{ scale: 0.88 }}
-                        animate={{
-                          scale: 1,
-                          boxShadow: v.isLocked
-                            ? "0 3px 5px rgba(0,0,0,0.25)"
-                            : "inset 0 2px 4px rgba(0,0,0,0.15)",
-                          backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
-                        }}
-                        transition={{ type: "spring", stiffness: 260, damping: 18 }}
-                        onClick={() => toggleVaultLock(v.id)}
-                        onDoubleClick={() => setLockModal({ vaultId: v.id })}
-                        className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
-                        aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
-                        title="Tap to toggle; double-tap to lock amount"
-                      >
+  whileTap={{ scale: 0.88 }}
+  animate={{
+    scale: 1,
+    boxShadow: v.isLocked
+      ? "0 3px 5px rgba(0,0,0,0.25)"
+      : "inset 0 2px 4px rgba(0,0,0,0.15)",
+    backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
+  }}
+  transition={{ type: "spring", stiffness: 260, damping: 18 }}
+  onClick={() => toggleVaultLock(v.id)}
+  onDoubleClick={() => setLockModal({ vaultId: v.id })}
+  onContextMenu={(e) => {
+    e.preventDefault();
+    if (v.locked > 0) setUnlockModal({ vaultId: v.id });
+    else alert("No locked funds to request.");
+  }}
+  className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
+  aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
+  title="Tap to toggle; double-tap to lock amount; right-click to request unlock"
+>
+
                         {v.isLocked ? (
                           <Lock className="h-4 w-4 text-gray-600" />
                         ) : (
@@ -795,6 +893,150 @@ function LockModal({
     </AnimatePresence>
   );
 }
+
+<UnlockModal
+  open={Boolean(unlockModal)}
+  onClose={() => setUnlockModal(null)}
+  vault={
+    unlockModal
+      ? vaults.find((v) => v.id === unlockModal.vaultId) ?? null
+      : null
+  }
+  onSubmit={(amount, reason) => {
+    if (!unlockModal) return;
+    submitUnlockRequest(unlockModal.vaultId, amount, reason);
+    setUnlockModal(null);
+  }}
+  onApproveCode={(code) => {
+    if (!unlockModal) return;
+    const r = requests.find(
+      (x) =>
+        x.vaultId === unlockModal.vaultId &&
+        x.status === "pending" &&
+        x.code === code.trim()
+    );
+    if (!r) {
+      alert("Invalid or expired code.");
+      return;
+    }
+    setRequests((all) => all.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
+    setVaults((prev) =>
+      prev.map((v) =>
+        v.id === r.vaultId ? { ...v, locked: Math.max(0, v.locked - r.amount) } : v
+      )
+    );
+    alert("Approved by code. Funds unlocked.");
+    setUnlockModal(null);
+  }}
+/>
+
+function UnlockModal({
+  open,
+  onClose,
+  vault,
+  onSubmit,
+  onApproveCode,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  onSubmit: (amount: number, reason: string) => void;
+  onApproveCode: (code: string) => void;
+}) {
+  const [amount, setAmount] = useState(100);
+  const [reason, setReason] = useState("");
+  const [showCode, setShowCode] = useState(false);
+  const [code, setCode] = useState("");
+
+  if (!open || !vault) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-1">Request early unlock</div>
+          <div className="text-sm text-gray-500 mb-4">
+            Your Keyholder will review and approve. If you already have an approval code,
+            enter it below.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2 mb-3">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason for unlock..."
+            className="w-full rounded-xl border px-3 py-2 text-sm outline-none mb-4"
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              onClick={() => onSubmit(amount, reason)}
+              className="py-3 rounded-xl bg-emerald-600 text-white"
+            >
+              Submit
+            </button>
+          </div>
+
+          {/* Approval code path */}
+          <div className="mt-4 text-xs text-gray-500">
+            <button onClick={() => setShowCode((s) => !s)} className="underline">
+              {showCode ? "Hide approval code" : "Have an approval code?"}
+            </button>
+          </div>
+
+          {showCode && (
+            <div className="mt-2">
+              <div className="flex items-center rounded-xl border px-3 py-2">
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="Enter 6-digit code"
+                  className="w-full outline-none py-2"
+                  maxLength={6}
+                />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <button onClick={() => setShowCode(false)} className="py-3 rounded-xl border">
+                  Back
+                </button>
+                <button
+                  onClick={() => onApproveCode(code)}
+                  className="py-3 rounded-xl bg-gray-900 text-white"
+                >
+                  Approve with code
+                </button>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 
 function NewVaultModal({
   open,
