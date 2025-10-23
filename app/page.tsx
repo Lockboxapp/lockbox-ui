@@ -483,76 +483,7 @@ const [budgets, setBudgets] = useState<{ rent: number; emergency: number; spendi
     </div>
   );
 }
-function SettingsDrawer({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const options = [
-    "Connect Bank",
-    "Manage Accountability Partners",
-    "Manage Budgets & Savings",
-    "Language",
-    "Help & Feedback",
-    "Sign Out",
-  ];
 
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex justify-end bg-black/40"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop click closes */}
-          <div className="flex-1" onClick={onClose}></div>
-
-          {/* Drawer */}
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 260, damping: 25 }}
-            className="w-80 max-w-full h-full bg-white shadow-2xl p-5 flex flex-col"
-          >
-            <div className="flex justify-between items-center mb-4">
-              <div className="text-lg font-semibold">Settings</div>
-              <motion.button
-                whileTap={{ scale: 0.9 }}
-                onClick={onClose}
-                className="p-2 rounded-full hover:bg-gray-100"
-              >
-                <X className="h-5 w-5 text-gray-700" />
-              </motion.button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto">
-              {options.map((label, i) => (
-                <motion.button
-                  key={i}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => alert(`${label} coming soon`)}
-                  className="w-full text-left px-3 py-3 rounded-xl hover:bg-gray-50 flex justify-between items-center text-gray-800"
-                >
-                  <span>{label}</span>
-                  <ChevronRight className="h-4 w-4 text-gray-400" />
-                </motion.button>
-              ))}
-            </div>
-
-            <div className="mt-5 text-xs text-gray-400 text-center">
-              LockBox v1.0.0
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
 /* =========================================
    Modals
 ========================================= */
@@ -962,6 +893,7 @@ function NewVaultModal({
     </AnimatePresence>
   );
 }
+
 function SettingsDrawer({
   open,
   onClose,
@@ -1437,6 +1369,7 @@ function SliderRow({
     </div>
   );
 }
+
 
 /* =========================================
    Banker & Rewards (unchanged basics)
