@@ -14,6 +14,14 @@ import {
   Star,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
+  Link2,
+  CreditCard,
+  Users,
+  Languages, 
+  HelpCircle, 
+  LogOut, 
+  Trash2,
   Plus,
   ArrowRightLeft,
 } from "lucide-react";
@@ -72,6 +80,18 @@ export default function LockBoxApp() {
   const [tab, setTab] = useState<TabKey>("home");
   const [showGoal, setShowGoal] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+// Settings data
+const [bankConnected, setBankConnected] = useState(false);
+const [bankName, setBankName] = useState<string>(""); // e.g., "Chase"
+const [keyholders, setKeyholders] = useState<Array<{ id: string; name: string; contact: string }>>([]);
+const [language, setLanguage] = useState<"en" | "es">("en");
+const [budgets, setBudgets] = useState<{ rent: number; emergency: number; spending: number }>({
+  rent: 50,
+  emergency: 30,
+  spending: 20,
+});
+
 
   // Vaults
   const [vaults, setVaults] = useState<Vault[]>([
@@ -441,7 +461,23 @@ export default function LockBoxApp() {
           setNewVaultModal(false);
         }}
       />
-<SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+       {/* Settings modal */}
+<SettingsDrawer
+  open={settingsOpen}
+  onClose={() => setSettingsOpen(false)}
+  // data + setters
+  bankConnected={bankConnected}
+  bankName={bankName}
+  setBankConnected={setBankConnected}
+  setBankName={setBankName}
+  keyholders={keyholders}
+  setKeyholders={setKeyholders}
+  language={language}
+  setLanguage={setLanguage}
+  budgets={budgets}
+  setBudgets={setBudgets}
+/>
+
       {/* Celebrate modal */}
       <GoalAchieved open={showGoal} onClose={() => setShowGoal(false)} />
     </div>
@@ -924,6 +960,481 @@ function NewVaultModal({
         </motion.div>
       </motion.div>
     </AnimatePresence>
+  );
+}
+function SettingsDrawer({
+  open,
+  onClose,
+  bankConnected,
+  bankName,
+  setBankConnected,
+  setBankName,
+  keyholders,
+  setKeyholders,
+  language,
+  setLanguage,
+  budgets,
+  setBudgets,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bankConnected: boolean;
+  bankName: string;
+  setBankConnected: (v: boolean) => void;
+  setBankName: (n: string) => void;
+  keyholders: Array<{ id: string; name: string; contact: string }>;
+  setKeyholders: React.Dispatch<React.SetStateAction<Array<{ id: string; name: string; contact: string }>>>;
+  language: "en" | "es";
+  setLanguage: (l: "en" | "es") => void;
+  budgets: { rent: number; emergency: number; spending: number };
+  setBudgets: React.Dispatch<React.SetStateAction<{ rent: number; emergency: number; spending: number }>>;
+}) {
+  const [view, setView] = useState<
+    "root" | "bank" | "partners" | "budgets" | "language" | "help" | "signout"
+  >("root");
+
+  // local state for each sub-view
+  const [pendingProvider, setPendingProvider] = useState<string>("");
+  const [khName, setKhName] = useState("");
+  const [khContact, setKhContact] = useState("");
+
+  const totalBudget = budgets.rent + budgets.emergency + budgets.spending;
+  const providers = ["Chase", "Bank of America", "Wells Fargo", "Cash App", "Citi", "ADP"];
+
+  const resetAndClose = () => {
+    setView("root");
+    onClose();
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex justify-end bg-black/40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {/* backdrop */}
+          <div className="flex-1" onClick={resetAndClose} />
+
+          {/* drawer */}
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 260, damping: 25 }}
+            className="w-80 max-w-full h-full bg-white shadow-2xl p-5 flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                {view !== "root" ? (
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setView("root")}
+                    className="p-2 rounded-full hover:bg-gray-100"
+                    aria-label="Back"
+                  >
+                    <ChevronLeft className="h-5 w-5 text-gray-700" />
+                  </motion.button>
+                ) : null}
+                <div className="text-lg font-semibold">
+                  {view === "root" && "Settings"}
+                  {view === "bank" && "Connect Bank"}
+                  {view === "partners" && "Accountability Partners"}
+                  {view === "budgets" && "Budgets & Savings"}
+                  {view === "language" && "Language"}
+                  {view === "help" && "Help & Feedback"}
+                  {view === "signout" && "Sign Out"}
+                </div>
+              </div>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={resetAndClose}
+                className="p-2 rounded-full hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-gray-700" />
+              </motion.button>
+            </div>
+
+            {/* Root list */}
+            {view === "root" && (
+              <div className="flex-1 overflow-y-auto">
+                <ListRow
+                  icon={<Link2 className="h-5 w-5" />}
+                  title="Connect Bank"
+                  subtitle={bankConnected ? `Connected: ${bankName}` : "Not connected"}
+                  onClick={() => setView("bank")}
+                />
+                <ListRow
+                  icon={<Users className="h-5 w-5" />}
+                  title="Manage Accountability Partners"
+                  subtitle={`${keyholders.length} partner${keyholders.length === 1 ? "" : "s"}`}
+                  onClick={() => setView("partners")}
+                />
+                <ListRow
+                  icon={<CreditCard className="h-5 w-5" />}
+                  title="Manage Budgets & Savings"
+                  subtitle={`Split: ${budgets.rent}/${budgets.emergency}/${budgets.spending}`}
+                  onClick={() => setView("budgets")}
+                />
+                <ListRow
+                  icon={<Languages className="h-5 w-5" />}
+                  title="Language"
+                  subtitle={language === "en" ? "English" : "Español"}
+                  onClick={() => setView("language")}
+                />
+                <ListRow
+                  icon={<HelpCircle className="h-5 w-5" />}
+                  title="Help & Feedback"
+                  subtitle="Report a bug, request a feature"
+                  onClick={() => setView("help")}
+                />
+                <ListRow
+                  icon={<LogOut className="h-5 w-5" />}
+                  title="Sign Out"
+                  subtitle="You’ll need to sign in again"
+                  onClick={() => setView("signout")}
+                />
+
+                <div className="mt-6 text-xs text-gray-400 text-center">
+                  LockBox v1.0.0
+                </div>
+              </div>
+            )}
+
+            {/* Connect Bank */}
+            {view === "bank" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-3">
+                  Link a provider (mock). This simulates Plaid/Payroll.
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {providers.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPendingProvider(p)}
+                      className={`px-3 py-2 rounded-xl border text-sm ${
+                        pendingProvider === p ? "border-emerald-500 bg-emerald-50" : ""
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button
+                    className="py-3 rounded-xl border"
+                    onClick={() => setView("root")}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!pendingProvider}
+                    className={`py-3 rounded-xl text-white ${
+                      pendingProvider ? "bg-emerald-600" : "bg-gray-300"
+                    }`}
+                    onClick={() => {
+                      setBankConnected(true);
+                      setBankName(pendingProvider);
+                      setPendingProvider("");
+                      setView("root");
+                    }}
+                  >
+                    {bankConnected ? "Switch" : "Connect"}
+                  </button>
+                </div>
+
+                {bankConnected && (
+                  <div className="mt-4 text-xs text-gray-500">
+                    Connected to: <b>{bankName}</b>
+                    <br />
+                    (Demo) Disconnect?
+                    <button
+                      onClick={() => {
+                        setBankConnected(false);
+                        setBankName("");
+                      }}
+                      className="ml-2 text-rose-600 underline"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Partners */}
+            {view === "partners" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-3">
+                  {keyholders.length === 0 && (
+                    <div className="text-sm text-gray-500">No partners yet.</div>
+                  )}
+                  {keyholders.map((k) => (
+                    <div
+                      key={k.id}
+                      className="p-3 rounded-xl border flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{k.name}</div>
+                        <div className="text-xs text-gray-500">{k.contact}</div>
+                      </div>
+                      <button
+                        onClick={() =>
+                          setKeyholders((prev) => prev.filter((x) => x.id !== k.id))
+                        }
+                        className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 p-3 rounded-xl border">
+                  <div className="text-sm font-medium mb-2">Add a partner</div>
+                  <input
+                    value={khName}
+                    onChange={(e) => setKhName(e.target.value)}
+                    placeholder="Name"
+                    className="w-full rounded-xl border px-3 py-2 outline-none mb-2"
+                  />
+                  <input
+                    value={khContact}
+                    onChange={(e) => setKhContact(e.target.value)}
+                    placeholder="Email or phone"
+                    className="w-full rounded-xl border px-3 py-2 outline-none"
+                  />
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                      Cancel
+                    </button>
+                    <button
+                      disabled={!khName.trim() || !khContact.trim()}
+                      onClick={() => {
+                        setKeyholders((prev) => [
+                          ...prev,
+                          { id: `${Date.now()}`, name: khName.trim(), contact: khContact.trim() },
+                        ]);
+                        setKhName("");
+                        setKhContact("");
+                      }}
+                      className={`py-3 rounded-xl text-white ${
+                        khName.trim() && khContact.trim() ? "bg-emerald-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <Plus className="inline h-4 w-4 mr-1" />
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Budgets */}
+            {view === "budgets" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-3">
+                  Set your monthly split. Total must equal <b>100%</b>.
+                </div>
+
+                <SliderRow
+                  label="Rent safe-deposit box"
+                  value={budgets.rent}
+                  onChange={(v) => setBudgets((b) => ({ ...b, rent: v }))}
+                />
+                <SliderRow
+                  label="Emergency fund"
+                  value={budgets.emergency}
+                  onChange={(v) => setBudgets((b) => ({ ...b, emergency: v }))}
+                />
+                <SliderRow
+                  label="Spending"
+                  value={budgets.spending}
+                  onChange={(v) => setBudgets((b) => ({ ...b, spending: v }))}
+                />
+
+                <div className="mt-2 text-sm">
+                  Total:{" "}
+                  <span
+                    className={
+                      totalBudget === 100 ? "text-emerald-700 font-medium" : "text-amber-700 font-medium"
+                    }
+                  >
+                    {totalBudget}%
+                  </span>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Cancel
+                  </button>
+                  <button
+                    disabled={totalBudget !== 100}
+                    onClick={() => setView("root")}
+                    className={`py-3 rounded-xl text-white ${
+                      totalBudget === 100 ? "bg-emerald-600" : "bg-gray-300"
+                    }`}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Language */}
+            {view === "language" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lang"
+                      checked={language === "en"}
+                      onChange={() => setLanguage("en")}
+                    />
+                    English
+                  </label>
+                  <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lang"
+                      checked={language === "es"}
+                      onChange={() => setLanguage("es")}
+                    />
+                    Español
+                  </label>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Back
+                  </button>
+                  <button
+                    onClick={() => setView("root")}
+                    className="py-3 rounded-xl bg-emerald-600 text-white"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Help */}
+            {view === "help" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-3 text-sm">
+                  <p>Need help or want to send feedback?</p>
+                  <button
+                    onClick={() => alert("Opening email client (demo)…")}
+                    className="w-full px-3 py-3 rounded-xl bg-gray-900 text-white"
+                  >
+                    Email support
+                  </button>
+                  <button
+                    onClick={() => alert("Opening docs (demo)…")}
+                    className="w-full px-3 py-3 rounded-xl border"
+                  >
+                    Read docs
+                  </button>
+                </div>
+                <div className="mt-6 text-xs text-gray-400">
+                  Version 1.0.0 • Thanks for trying LockBox!
+                </div>
+              </div>
+            )}
+
+            {/* Sign out */}
+            {view === "signout" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-4">
+                  Are you sure you want to sign out?
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      alert("Signed out (demo).");
+                      resetAndClose();
+                    }}
+                    className="py-3 rounded-xl bg-rose-600 text-white"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/* ——— Small helpers used by SettingsDrawer ——— */
+
+function ListRow({
+  icon,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className="w-full text-left px-3 py-3 rounded-xl hover:bg-gray-50 flex justify-between items-center text-gray-800"
+    >
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 rounded-xl bg-gray-100 grid place-items-center">{icon}</div>
+        <div>
+          <div className="font-medium">{title}</div>
+          {subtitle && <div className="text-xs text-gray-500">{subtitle}</div>}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-gray-400" />
+    </motion.button>
+  );
+}
+
+function SliderRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-sm text-gray-600">{label}</div>
+        <div className="text-sm font-medium">{value}%</div>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
+    </div>
   );
 }
 
