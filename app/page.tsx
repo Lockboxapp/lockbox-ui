@@ -539,6 +539,42 @@ function simulateReject(id: string) {
         }}
       />
 
+  <UnlockModal
+  open={Boolean(unlockModal)}
+  onClose={() => setUnlockModal(null)}
+  vault={
+    unlockModal
+      ? vaults.find((v) => v.id === unlockModal.vaultId) ?? null
+      : null
+  }
+  onSubmit={(amount, reason) => {
+    if (!unlockModal) return;
+    submitUnlockRequest(unlockModal.vaultId, amount, reason);
+    setUnlockModal(null);
+  }}
+  onApproveCode={(code) => {
+    if (!unlockModal) return;
+    const r = requests.find(
+      (x) =>
+        x.vaultId === unlockModal.vaultId &&
+        x.status === "pending" &&
+        x.code === code.trim()
+    );
+    if (!r) {
+      alert("Invalid or expired code.");
+      return;
+    }
+    setRequests((all) => all.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
+    setVaults((prev) =>
+      prev.map((v) =>
+        v.id === r.vaultId ? { ...v, locked: Math.max(0, v.locked - r.amount) } : v
+      )
+    );
+    alert("Approved by code. Funds unlocked.");
+    setUnlockModal(null);
+  }}
+/>
+      
       <NewVaultModal
         open={newVaultModal}
         onClose={() => setNewVaultModal(false)}
@@ -893,42 +929,6 @@ function LockModal({
     </AnimatePresence>
   );
 }
-
-<UnlockModal
-  open={Boolean(unlockModal)}
-  onClose={() => setUnlockModal(null)}
-  vault={
-    unlockModal
-      ? vaults.find((v) => v.id === unlockModal.vaultId) ?? null
-      : null
-  }
-  onSubmit={(amount, reason) => {
-    if (!unlockModal) return;
-    submitUnlockRequest(unlockModal.vaultId, amount, reason);
-    setUnlockModal(null);
-  }}
-  onApproveCode={(code) => {
-    if (!unlockModal) return;
-    const r = requests.find(
-      (x) =>
-        x.vaultId === unlockModal.vaultId &&
-        x.status === "pending" &&
-        x.code === code.trim()
-    );
-    if (!r) {
-      alert("Invalid or expired code.");
-      return;
-    }
-    setRequests((all) => all.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
-    setVaults((prev) =>
-      prev.map((v) =>
-        v.id === r.vaultId ? { ...v, locked: Math.max(0, v.locked - r.amount) } : v
-      )
-    );
-    alert("Approved by code. Funds unlocked.");
-    setUnlockModal(null);
-  }}
-/>
 
 function UnlockModal({
   open,
