@@ -1,42 +1,29 @@
 "use client";
-import React, { useMemo, useState, useEffect, useRef } from "react";
+
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║                      LOCKBOX — MAIN SCREEN                      ║
+   ║     One-tap lock/unlock, keyholder approvals, settings, etc.    ║
+   ╚════════════════════════════════════════════════════════════════╝ */
+
+import { useSession, signOut } from "next-auth/react";
+import Link from "next/link";
+import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  PiggyBank,
-  Shield,
-  Wallet,
-  MessageSquare,
-  Home,
-  Lock,
-  Star,
-  Sparkles,
-  ChevronRight,
-  Plus,
-  ArrowRightLeft,
-  PlayCircle,
-  CheckCircle2,
-  Banknote,
-  Users,
-  Clock,
-  Check,
-  CircleSlash,
-  History,
-  Calendar,
+  // Header + Nav
+  Menu, X, Home, MessageSquare, Star,
+  // Cards / UI
+  PiggyBank, Shield, Wallet, Sparkles, ChevronRight, ChevronLeft,
+  // Vault actions
+  Lock, Unlock, Plus, ArrowRightLeft,
+  // Settings icons
+  Link2, CreditCard, Users, Languages, HelpCircle, LogOut, Trash2,
 } from "lucide-react";
 
-/**
- * LockBox + The Banker — working UX with Onboarding
- * -------------------------------------------------
- * - Dashboard-first app with bottom tabs (Home, Vaults, Banker, Rewards)
- * - Full-screen onboarding wizard (Welcome → Connect → Split → Lock Rules → Keyholder → Review)
- * - Lock indicator + modal (no big lock/unlock buttons)
- * - New Vault modal (name, goal, MM/DD/YYYY + calendar, partner toggle)
- * - Transfer modal (to bank / between vaults)
- * - Unlock requests history
- * - Local state only (mocked). No backend required.
- */
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║  1) TYPES & BASIC UI HELPERS                                   ║
+   ╚════════════════════════════════════════════════════════════════╝ */
 
-// ------------------------- Types -------------------------
 type Vault = {
   id: string;
   name: string;
@@ -44,134 +31,134 @@ type Vault = {
   locked: number;
   saved: number;
   dueDays: number | null;
+  isLocked: boolean;
+  /** If true, early unlocks should go to a keyholder (when one exists) */
+  requireKeyholder?: boolean;
 };
+
+type TabKey = "home" | "vaults" | "banker" | "rewards";
 
 type UnlockRequest = {
   id: string;
   vaultId: string;
   amount: number;
   reason: string;
+  code: string; // 6-digit approval code
   status: "pending" | "approved" | "rejected";
   createdAt: number;
 };
 
-// ------------------------- Utils/UI -------------------------
 const currency = (n: number) =>
-  n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  n.toLocaleString(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
 
 function Progress({ value }: { value: number }) {
   return (
     <div className="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
-      <div className="h-full bg-emerald-600" style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+      <div
+        className="h-full bg-emerald-600"
+        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+      />
     </div>
   );
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`rounded-2xl shadow-sm border border-gray-100 ${className}`}>{children}</div>;
-}
-
-// Animated, tactile lock indicator (tap → haptic + open modal)
-function LockIndicator({ active, onOpen }: { active: boolean; onOpen: () => void }) {
+function Card({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <motion.button
-      type="button"
-      onClick={() => {
-  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-  navigator.vibrate?.(30);
-  }
-  onOpen();
-}}
-
-      whileTap={{ scale: 0.88 }}
-      initial={false}
-      animate={active ? { scale: [1, 1.12, 1] } : { scale: 1 }}
-      transition={{ duration: 1.6, repeat: active ? Infinity : 0, repeatDelay: 1.4, ease: "easeInOut" }}
-      className="inline-flex"
-      title={active ? "Funds locked (tap for details)" : "Tap to lock funds"}
-    >
-      <Lock className={`h-3.5 w-3.5 ${active ? "text-emerald-600" : "text-gray-400"}`} />
-    </motion.button>
+    <div className={`rounded-2xl shadow-sm border border-gray-100 ${className}`}>
+      {children}
+    </div>
   );
 }
 
-const TABS = [
-  { key: "home", label: "Home", icon: Home },
-  { key: "vaults", label: "Vaults", icon: Lock },
-  { key: "banker", label: "Banker", icon: MessageSquare },
-  { key: "rewards", label: "Rewards", icon: Star },
-] as const;
-
-type TabKey = (typeof TABS)[number]["key"];
-
-enum OnbStep {
-  Welcome = 0,
-  Connect = 1,
-  Split = 2,
-  LockRules = 3,
-  Keyholder = 4,
-  Review = 5,
-}
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║  2) MAIN APP                                                   ║
+   ╚════════════════════════════════════════════════════════════════╝ */
 
 export default function LockBoxApp() {
+  /* ── 2.1 Tabs / Modals / Settings State ───────────────────────── */
   const [tab, setTab] = useState<TabKey>("home");
   const [showGoal, setShowGoal] = useState(false);
-  const [showTransfer, setShowTransfer] = useState<null | { id: string }>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Lock modal
-  const [showLockModal, setShowLockModal] = useState(false);
-  const [activeVault, setActiveVault] = useState<Vault | null>(null);
+  // Settings data
+  const [bankConnected, setBankConnected] = useState(false);
+  const [bankName, setBankName] = useState<string>("");
+  const [keyholders, setKeyholders] = useState<
+    Array<{ id: string; name: string; contact: string }>
+  >([]);
+  const [language, setLanguage] = useState<"en" | "es">("en");
+  const [budgets, setBudgets] = useState<{
+    rent: number;
+    emergency: number;
+    spending: number;
+  }>({ rent: 50, emergency: 30, spending: 20 });
 
-  // Early unlock flow
-  const [requests, setRequests] = useState<UnlockRequest[]>([]);
-
-  // New Vault modal
-  const [newVaultOpen, setNewVaultOpen] = useState(false);
-
-  // Mock vaults
+  // Vaults
   const [vaults, setVaults] = useState<Vault[]>([
-    { id: "rent", name: "Rent safe-deposit box", target: 1500, locked: 900, saved: 1200, dueDays: 8 },
-    { id: "emergency", name: "Emergency fund", target: 2000, locked: 0, saved: 850, dueDays: null },
+    {
+      id: "rent",
+      name: "Rent safe-deposit box",
+      target: 1500,
+      locked: 900,
+      saved: 1200,
+      dueDays: 8,
+      isLocked: true,
+      requireKeyholder: true,
+    },
+    {
+      id: "emergency",
+      name: "Emergency fund",
+      target: 2000,
+      locked: 0,
+      saved: 850,
+      dueDays: null,
+      isLocked: false,
+      requireKeyholder: false,
+    },
   ]);
 
-  const totalSaved = useMemo(() => vaults.reduce((a, v) => a + v.saved, 0), [vaults]);
+  // Action modals
+  const [showTransfer, setShowTransfer] = useState<null | { id: string }>(null);
+  const [lockModal, setLockModal] = useState<null | { vaultId: string }>(null);
+  const [addFundsModal, setAddFundsModal] = useState<null | { vaultId: string }>(null);
+  const [newVaultModal, setNewVaultModal] = useState(false);
 
-  // Onboarding state
-  const [onbStep, setOnbStep] = useState<OnbStep>(OnbStep.Welcome);
-  const [connected, setConnected] = useState(false);
-  const [netPay, setNetPay] = useState(2200);
-  const [alloc, setAlloc] = useState({ rent: 50, emergency: 30, spending: 20 });
-  const [lockUntilDue, setLockUntilDue] = useState(true);
-  const [keyholder, setKeyholder] = useState({ enabled: true, contact: "", rule: "approve_over_100" });
+  // Unlock flow + keyholder portal
+  const [requests, setRequests] = useState<UnlockRequest[]>([]);
+  const [unlockModal, setUnlockModal] = useState<null | { vaultId: string }>(null);
+  const [keyholderPortalOpen, setKeyholderPortalOpen] = useState(false);
 
-  const startOnboarding = () => {
-    setShowOnboarding(true);
-    setOnbStep(OnbStep.Welcome);
-  };
+  // Sign out flow
+  const { data: session, status } = useSession();
 
-  const finishOnboarding = () => {
-    const rentAdd = Math.round((alloc.rent / 100) * netPay);
-    const emerAdd = Math.round((alloc.emergency / 100) * netPay);
 
+  /* ── 2.2 Derived ──────────────────────────────────────────────── */
+  const totalSaved = useMemo(
+    () => vaults.reduce((a, v) => a + v.saved, 0),
+    [vaults]
+  );
+
+  /* ── 2.3 Money Helpers ────────────────────────────────────────── */
+  function addFunds(vaultId: string, amount: number) {
     setVaults((prev) =>
-      prev
-        .map((v) =>
-          v.id === "rent"
-            ? { ...v, saved: Math.min(v.target, v.saved + rentAdd), locked: lockUntilDue ? Math.min(v.target, v.locked + rentAdd) : v.locked }
-            : v
-        )
-        .map((v) => (v.id === "emergency" ? { ...v, saved: Math.min(v.target, v.saved + emerAdd) } : v))
+      prev.map((v) =>
+        v.id === vaultId
+          ? { ...v, saved: Math.min(v.target, v.saved + Math.max(0, amount)) }
+          : v
+      )
     );
+  }
 
-    setShowOnboarding(false);
-    setTab("home");
-    setShowGoal(true);
-  };
-
-  // -------- Money helpers --------
-
-  // Lock from UNLOCKED -> LOCKED
   function lockFunds(vaultId: string, amount: number) {
     setVaults((prev) =>
       prev.map((v) => {
@@ -179,12 +166,11 @@ export default function LockBoxApp() {
         const lockable = Math.max(0, v.saved - v.locked);
         const amt = Math.max(0, Math.min(amount, lockable));
         if (amt === 0) return v;
-        return { ...v, locked: Math.min(v.target, v.locked + amt) };
+        return { ...v, locked: Math.min(v.target, v.locked + amt), isLocked: true };
       })
     );
   }
 
-  // Withdraw from UNLOCKED to bank
   function withdrawToBank(vaultId: string, amount: number) {
     setVaults((prev) =>
       prev.map((v) => {
@@ -197,7 +183,6 @@ export default function LockBoxApp() {
     );
   }
 
-  // Move UNLOCKED from one vault to another's SAVED
   function moveBetweenVaults(fromId: string, toId: string, amount: number) {
     if (fromId === toId) return;
     setVaults((prev) => {
@@ -217,387 +202,130 @@ export default function LockBoxApp() {
     });
   }
 
-  // --- Simulated Keyholder notification (console + alert) ---
-  function sendKeyholderNotification(req: { id: string; vaultId: string; amount: number; reason: string }) {
-    const message = `
-📩 LockBox Notification
-
-User requested an early unlock of $${req.amount} from their "${req.vaultId}" vault.
-Reason: "${req.reason || "No reason provided."}"
-
-Reply YES or NO to approve/decline.
-
-Or view the request online:
-👉 http://localhost:3000/keyholder?id=${req.id}
-`.trim();
-
-    console.log("📱 Simulated Keyholder SMS:\n" + message);
-    alert("Simulated SMS sent to Keyholder. Open the browser console to copy the link.");
+  /* ── 2.4 Unlock Flow Helpers ──────────────────────────────────── */
+  function generateCode() {
+    return String(Math.floor(100000 + Math.random() * 900000));
   }
 
-  // Create an unlock request (requires Keyholder if enabled)
-  function submitUnlockRequest(vaultId: string, amount: number, reason: string) {
+  function sendKeyholderNotification(
+    req: UnlockRequest,
+    partner: { name: string; contact: string } | null
+  ) {
+    const partnerLine = partner ? `${partner.name} (${partner.contact})` : "—";
+    const msg = `
+📩 LockBox — Early Unlock Request
+Vault: ${req.vaultId}
+Amount: $${req.amount}
+Reason: ${req.reason || "(none)"}
+Approval code: ${req.code}
+
+Keyholder: ${partnerLine}
+(Use 'Keyholder Portal' in the app and enter this code to approve.)
+`.trim();
+
+    console.log(msg);
+    alert("Simulated SMS to Keyholder sent (see console). Code: " + req.code);
+  }
+
+  /** Create an unlock request.
+   * If sendToPartner = false OR no keyholders configured -> auto-approve.
+   */
+  function submitUnlockRequest(
+    vaultId: string,
+    amount: number,
+    reason: string,
+    sendToPartner: boolean
+  ) {
+    const v = vaults.find((x) => x.id === vaultId);
+    if (!v) return;
+
+    const thereIsPartner = keyholders.length > 0;
+    const shouldSend = sendToPartner && thereIsPartner;
+
     const req: UnlockRequest = {
       id: `${Date.now()}`,
       vaultId,
-      amount,
+      amount: Math.max(0, amount),
       reason,
-      status: keyholder.enabled ? "pending" : "approved",
+      code: generateCode(),
+      status: shouldSend ? "pending" : "approved",
       createdAt: Date.now(),
     };
 
     setRequests((r) => [req, ...r]);
 
-    if (!keyholder.enabled) {
-      // no keyholder → instant unlock
+    if (!shouldSend) {
+      // instant approve path
       setVaults((prev) =>
-        prev.map((v) => (v.id === vaultId ? { ...v, locked: Math.max(0, v.locked - amount) } : v))
+        prev.map((x) =>
+          x.id === vaultId ? { ...x, locked: Math.max(0, x.locked - req.amount) } : x
+        )
       );
-      setShowGoal(true);
-    } else {
-      sendKeyholderNotification(req);
+      alert("Unlocked instantly (no keyholder required).");
+      return;
     }
+
+    // Notify first partner (demo)
+    sendKeyholderNotification(req, keyholders[0] ?? null);
   }
 
-  // Demo-only: approve / reject from within app
-  function simulateApprove(id: string) {
-    const req = requests.find((r) => r.id === id);
-    if (!req) return;
-    setRequests((all) => all.map((r) => (r.id === id ? { ...r, status: "approved" } : r)));
-    setVaults((prev) =>
-      prev.map((v) => (v.id === req.vaultId ? { ...v, locked: Math.max(0, v.locked - req.amount) } : v))
-    );
-  }
-  function simulateReject(id: string) {
-    setRequests((all) => all.map((r) => (r.id === id ? { ...r, status: "rejected" } : r)));
-  }
-
-  // Lock toggle handler used by modal
-  function handleToggleLock(id: string, lockNow: boolean) {
-    if (lockNow) {
-      // lock everything currently unlocked
-      const vault = vaults.find((v) => v.id === id);
-      if (!vault) return;
-      const toLock = Math.max(0, vault.saved - vault.locked);
-      if (toLock > 0) lockFunds(id, toLock);
-    } else {
-      // replace with real unlock request flow:
-      setActiveVault(vaults.find((v) => v.id === id) || null);
-      // open request flow inside lock modal (handled via submitUnlockRequest)
-    }
-  }
-
+  /* ── 2.5 UI: Header / Pages / Bottom Nav ──────────────────────── */
   return (
     <div className="min-h-screen w-full bg-white text-gray-900">
-      {/* Top bar */}
-      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-gray-100">
-        <div className="mx-auto max-w-md px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-9 w-9 rounded-full grid place-items-center bg-emerald-100">
-              <PiggyBank className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div className="leading-tight">
-              <div className="font-semibold">LockBox</div>
-              <div className="text-xs text-gray-500">with The Banker</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={startOnboarding}
-              className="text-xs px-3 py-1.5 rounded-full bg-gray-900 text-white hover:bg-gray-800 transition inline-flex items-center gap-1"
-              title="Start onboarding"
-            >
-              <PlayCircle className="h-4 w-4" /> Set up
-            </button>
-            <button
-              onClick={() => setNewVaultOpen(true)}
-              className="text-xs px-3 py-1.5 rounded-full border hover:bg-gray-50 transition"
-              title="Create a new vault"
-            >
-              New vault
-            </button>
-            <button
-              onClick={() => setShowGoal(true)}
-              className="text-xs px-3 py-1.5 rounded-full bg-emerald-600 text-white hover:bg-emerald-700 transition"
-              title="Demo: show goal achieved"
-            >
-              Demo Win
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* ── Header with Hamburger ─────────────────────────────────── */} <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-gray-100"> <div className="mx-auto max-w-md px-4 py-3 flex items-center justify-between"> <div className="flex items-center gap-2"> <div className="h-9 w-9 rounded-full grid place-items-center bg-emerald-100"> <PiggyBank className="h-5 w-5 text-emerald-600" /> </div> <div className="leading-tight"> <div className="font-semibold">LockBox</div> <div className="text-xs text-gray-500">with The Banker</div> </div> </div> <motion.button whileTap={{ scale: 0.9 }} onClick={() => setSettingsOpen(true)} className="p-2 rounded-full hover:bg-gray-100 transition" aria-label="Open settings" > <Menu className="h-5 w-5 text-gray-700" /> </motion.button> </div> </header>
 
-      {/* Content */}
+      {/* ── Pages ─────────────────────────────────────────────────── */}
       <main className="mx-auto max-w-md pb-24">
-        <AnimatePresence mode="wait">
-          {tab === "home" && (
-            <motion.div key="home" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="px-4 py-5 space-y-12">
-              <section className="space-y-4">
-                <h2 className="text-2xl font-semibold">Home</h2>
-                <Card className="p-4 bg-emerald-600 text-white">
-                  <div className="flex items-start gap-4">
-                    <div className="h-12 w-12 rounded-xl bg-emerald-700 grid place-items-center">
-                      <Sparkles className="h-6 w-6" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold text-lg">Earn More</div>
-                      <p className="text-sm/5 opacity-90">Find flexible side gigs to make extra cash</p>
-                    </div>
-                    <ChevronRight className="h-5 w-5" />
-                  </div>
-                </Card>
-              </section>
-
-              <section className="space-y-3">
-                <h3 className="text-lg font-semibold">Your savings</h3>
-                <div className="grid grid-cols-1 gap-3">
-                  <Card className="p-4 bg-[#0E3559] text-white">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm opacity-80">Total saved</span>
-                      <Wallet className="h-4 w-4 opacity-80" />
-                    </div>
-                    <div className="text-2xl font-bold">{currency(totalSaved)}</div>
-                  </Card>
-                  <Card className="p-4 bg-[#103E68] text-white">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm opacity-80">Safe deposit box</span>
-                      <Shield className="h-4 w-4 opacity-80" />
-                    </div>
-                    <div className="text-2xl font-bold">{currency(vaults.find((v) => v.id === "rent")?.target || 1500)}</div>
-                  </Card>
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <h3 className="text-lg font-semibold">Suggested actions</h3>
-                <Card className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="h-11 w-11 rounded-xl bg-gray-100 grid place-items-center">
-                      <MessageSquare className="h-5 w-5 text-gray-700" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium">Reflect on a recent impulse purchase</div>
-                      <p className="text-sm text-gray-500">The Banker left feedback in chat</p>
-                    </div>
-                    <button onClick={() => setTab("banker")} className="px-3 py-1.5 rounded-full text-sm bg-gray-900 text-white">
-                      Open
-                    </button>
-                  </div>
-                </Card>
-                <Card className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="h-11 w-11 rounded-xl bg-emerald-100 grid place-items-center">
-                      <PiggyBank className="h-5 w-5 text-emerald-700" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-medium">Finish setup to auto-split your paycheck</div>
-                      <p className="text-sm text-gray-500">Onboarding takes about a minute</p>
-                    </div>
-                    <button onClick={startOnboarding} className="px-3 py-1.5 rounded-full text-sm bg-emerald-600 text-white">
-                      Start
-                    </button>
-                  </div>
-                </Card>
-              </section>
-            </motion.div>
-          )}
-
-          {tab === "vaults" && (
-            <motion.div key="vaults" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="px-4 py-5 space-y-5">
-              <h2 className="text-2xl font-semibold">Vault</h2>
-              {vaults.map((v) => {
-                const pct = (v.saved / v.target) * 100;
-                const unlocked = Math.max(0, v.saved - v.locked);
-                return (
-                  <Card key={v.id} className="p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-semibold">{v.name}</div>
-                        <div className="text-sm text-gray-500">
-                          {currency(v.target)}
-                          {v.dueDays ? ` due in ${v.dueDays} days` : " target"}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm text-gray-500 flex items-center justify-end gap-1">
-                          <LockIndicator
-                            active={v.locked > 0}
-                            onOpen={() => {
-                              setActiveVault(v);
-                              setShowLockModal(true);
-                            }}
-                          />
-                          <span>{currency(v.locked)} locked</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <Progress value={pct} />
-                    </div>
-
-                    <div className="mt-2 flex items-center justify-between text-sm text-gray-600">
-                      <span>
-                        Saved: <span className="font-medium text-gray-900">{currency(v.saved)}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        Unlocked:{" "}
-                        <span className={unlocked > 0 ? "text-emerald-600 font-medium" : "text-gray-400"}>
-                          {currency(unlocked)}
-                        </span>
-                      </span>
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between">
-                      <div />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setShowTransfer({ id: v.id })}
-                          disabled={unlocked <= 0}
-                          className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1 ${
-                            unlocked > 0 ? "bg-gray-900 text-white" : "bg-gray-200 text-gray-500 cursor-not-allowed"
-                          }`}
-                          title={unlocked > 0 ? "Transfer from unlocked funds" : "Nothing unlocked to transfer"}
-                        >
-                          <ArrowRightLeft className="h-4 w-4" /> Transfer
-                        </button>
-                        <button
-                          onClick={() => {
-                            const plus = 50;
-                            setVaults((prev) =>
-                              prev.map((x) => (x.id === v.id ? { ...x, saved: Math.min(x.target, x.saved + plus) } : x))
-                            );
-                          }}
-                          className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1 bg-emerald-600 text-white"
-                        >
-                          <Plus className="h-4 w-4" /> Add $50
-                        </button>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
-
-              <Card className="p-4 border-dashed">
-                <button
-                  onClick={() => setNewVaultOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-50 hover:bg-gray-100"
-                >
-                  <Plus className="h-5 w-5" /> Create a new vault
-                </button>
-              </Card>
-
-              {/* Unlock requests history */}
-              <Card className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <History className="h-4 w-4 text-gray-700" />
-                  <div className="font-medium">Unlock requests</div>
-                </div>
-
-                {requests.length === 0 ? (
-                  <div className="text-sm text-gray-500">No requests yet.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {requests.map((r) => {
-                      const v = vaults.find((vv) => vv.id === r.vaultId);
-                      const statusStyles =
-                        r.status === "approved"
-                          ? "text-emerald-700 bg-emerald-50"
-                          : r.status === "rejected"
-                          ? "text-rose-700 bg-rose-50"
-                          : "text-amber-700 bg-amber-50";
-                      return (
-                        <div key={r.id} className="p-3 rounded-xl border flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-medium text-sm">
-                              {v?.name || r.vaultId} — {currency(r.amount)}
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              {new Date(r.createdAt).toLocaleString()} • {r.reason || "No reason provided"}
-                            </div>
-                          </div>
-                          <div className={`px-2 py-1 rounded-md text-xs ${statusStyles}`}>{r.status}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* demo-only inline controls */}
-                {requests.some((r) => r.status === "pending") && (
-                  <div className="mt-3 text-xs text-gray-600">
-                    (Demo) Manage pending:{" "}
-                    {requests
-                      .filter((r) => r.status === "pending")
-                      .map((r) => (
-                        <span key={r.id} className="inline-flex items-center gap-2 mr-2">
-                          <button onClick={() => simulateApprove(r.id)} className="px-2 py-1 rounded-md bg-emerald-600 text-white">
-                            Approve
-                          </button>
-                          <button onClick={() => simulateReject(r.id)} className="px-2 py-1 rounded-md bg-rose-600 text-white">
-                            Reject
-                          </button>
-                        </span>
-                      ))}
-                  </div>
-                )}
-              </Card>
-            </motion.div>
-          )}
-
-          {tab === "banker" && <BankerChat key="banker" onCelebrate={() => setShowGoal(true)} />}
-
-          {tab === "rewards" && (
-            <motion.div key="rewards" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="px-4 py-5 space-y-4">
-              <h2 className="text-2xl font-semibold">Rewards</h2>
-              <Card className="p-5 bg-[#0E3559] text-white">
-                <div className="flex items-center gap-4">
-                  <div className="h-12 w-12 rounded-2xl bg-white/10 grid place-items-center">
-                    <Star className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-lg">Goal streak</div>
-                    <div className="text-sm text-white/80">Hit 3 goals this month to earn a badge</div>
-                  </div>
-                </div>
-              </Card>
-              <Card className="p-4">
-                <div className="font-medium mb-2">Badges</div>
-                <div className="grid grid-cols-3 gap-3">
-                  {["On-time rent", "Impulse slayer", "Streak x7"].map((b) => (
-                    <div key={b} className="aspect-square rounded-xl border grid place-items-center text-center text-sm p-2">
-                      {b}
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {tab === "home" && <HomeScreen totalSaved={totalSaved} />}
+        {tab === "vaults" && (
+          <VaultsScreen
+            vaults={vaults}
+            setShowTransfer={setShowTransfer}
+            setAddFundsModal={setAddFundsModal}
+            setLockModal={setLockModal}
+            setUnlockModal={setUnlockModal}
+          />
+        )}
+        {tab === "banker" && <BankerChat />}
+        {tab === "rewards" && <Rewards />}
       </main>
 
-      {/* Bottom Nav */}
+      {/* ── Bottom Nav ────────────────────────────────────────────── */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-gray-100">
         <div className="mx-auto max-w-md grid grid-cols-4">
-          {TABS.map(({ key, label, icon: Icon }) => {
+          {(["home", "vaults", "banker", "rewards"] as TabKey[]).map((key) => {
+            const label =
+              key === "home"
+                ? "Home"
+                : key === "vaults"
+                ? "Vaults"
+                : key === "banker"
+                ? "Banker"
+                : "Rewards";
+            const Icon =
+              key === "home" ? Home : key === "vaults" ? Lock : key === "banker" ? MessageSquare : Star;
             const active = tab === key;
             return (
-              <button key={key} onClick={() => setTab(key)} className="py-3 flex flex-col items-center gap-1">
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className="py-3 flex flex-col items-center gap-1"
+              >
                 <Icon className={`h-5 w-5 ${active ? "text-emerald-600" : "text-gray-500"}`} />
-                <span className={`text-xs ${active ? "text-emerald-700 font-medium" : "text-gray-500"}`}>{label}</span>
+                <span className={`text-xs ${active ? "text-emerald-700 font-medium" : "text-gray-500"}`}>
+                  {label}
+                </span>
               </button>
             );
           })}
         </div>
       </nav>
 
-      {/* Modals */}
-      <GoalAchieved open={showGoal} onClose={() => setShowGoal(false)} />
-
+      {/* ── Modals (Global) ───────────────────────────────────────── */}
       <TransferModal
         open={Boolean(showTransfer)}
         onClose={() => setShowTransfer(null)}
-        sourceVault={showTransfer ? vaults.find((v) => v.id === showTransfer.id) || null : null}
+        sourceVault={showTransfer ? vaults.find((v) => v.id === showTransfer.id) ?? null : null}
         vaults={vaults}
         onTransferToBank={(amount) => {
           const id = showTransfer?.id;
@@ -611,86 +339,370 @@ Or view the request online:
         }}
       />
 
-      <LockModal
-        open={showLockModal}
-        onClose={() => setShowLockModal(false)}
-        vault={activeVault}
-        onLockNow={(id) => handleToggleLock(id, true)}
-        onRequestUnlock={(id, amount, reason) => submitUnlockRequest(id, amount, reason)}
-      />
-
-      <NewVaultModal
-        open={newVaultOpen}
-        onClose={() => setNewVaultOpen(false)}
-        onCreate={(nv) => {
-          const id = `vault-${Date.now()}`;
-          setVaults((prev) => [
-            ...prev,
-            {
-              id,
-              name: nv.name,
-              target: nv.target,
-              saved: 0,
-              locked: 0,
-              dueDays: nv.unlockDate
-                ? Math.max(0, Math.ceil((+new Date(nv.unlockDate) - Date.now()) / 86400000))
-                : null,
-            },
-          ]);
-
-          // simple demo: append partner contact to name if provided
-          if (nv.partnerEnabled && nv.partnerContact) {
-            setVaults((prev) => prev.map((v) => (v.id === id ? { ...v, name: `${v.name} · 👥 ${nv.partnerContact}` } : v)));
-          }
-
-          setNewVaultOpen(false);
+      <AddFundsModal
+        open={Boolean(addFundsModal)}
+        onClose={() => setAddFundsModal(null)}
+        vault={
+          addFundsModal
+            ? vaults.find((v) => v.id === addFundsModal.vaultId) ?? null
+            : null
+        }
+        onSubmit={(amount) => {
+          if (!addFundsModal) return;
+          addFunds(addFundsModal.vaultId, amount);
+          setAddFundsModal(null);
         }}
       />
 
-      <OnboardingWizard
-        open={showOnboarding}
-        step={onbStep}
-        setStep={setOnbStep}
-        connected={connected}
-        setConnected={setConnected}
-        netPay={netPay}
-        setNetPay={setNetPay}
-        alloc={alloc}
-        setAlloc={setAlloc}
-        lockUntilDue={lockUntilDue}
-        setLockUntilDue={setLockUntilDue}
-        keyholder={keyholder}
-        setKeyholder={setKeyholder}
-        onClose={() => setShowOnboarding(false)}
-        onFinish={finishOnboarding}
+      <LockModal
+        open={Boolean(lockModal)}
+        onClose={() => setLockModal(null)}
+        vault={lockModal ? vaults.find((v) => v.id === lockModal.vaultId) ?? null : null}
+        keyholderAvailable={keyholders.length > 0}
+        initialRequireKeyholder={
+          lockModal
+            ? vaults.find((v) => v.id === lockModal.vaultId)?.requireKeyholder ?? false
+            : false
+        }
+        onSubmit={(amount, requireKeyholder) => {
+          if (!lockModal) return;
+          // lock amount
+          lockFunds(lockModal.vaultId, amount);
+          // persist rule + set locked state
+          setVaults((prev) =>
+            prev.map((x) =>
+              x.id === lockModal.vaultId ? { ...x, isLocked: true, requireKeyholder } : x
+            )
+          );
+          setLockModal(null);
+        }}
       />
+
+      <UnlockModal
+        open={Boolean(unlockModal)}
+        onClose={() => setUnlockModal(null)}
+        vault={
+          unlockModal
+            ? vaults.find((v) => v.id === unlockModal.vaultId) ?? null
+            : null
+        }
+        defaultSendToPartner={
+          unlockModal
+            ? (vaults.find((v) => v.id === unlockModal.vaultId)?.requireKeyholder ?? false) &&
+              keyholders.length > 0
+            : false
+        }
+        onSubmit={(amount, reason, sendToPartner) => {
+          if (!unlockModal) return;
+          submitUnlockRequest(unlockModal.vaultId, amount, reason, sendToPartner);
+          setUnlockModal(null);
+        }}
+      />
+
+      <KeyholderPortalModal
+        open={keyholderPortalOpen}
+        onClose={() => setKeyholderPortalOpen(false)}
+        requests={requests}
+        onApprove={(code) => {
+          const r = requests.find((x) => x.status === "pending" && x.code === code.trim());
+          if (!r) {
+            alert("Invalid or expired code.");
+            return;
+          }
+          setRequests((all) => all.map((x) => (x.id === r.id ? { ...x, status: "approved" } : x)));
+          setVaults((prev) =>
+            prev.map((v) =>
+              v.id === r.vaultId ? { ...v, locked: Math.max(0, v.locked - r.amount) } : v
+            )
+          );
+          alert("Approved. Funds unlocked.");
+        }}
+        onReject={(code) => {
+          const r = requests.find((x) => x.status === "pending" && x.code === code.trim());
+          if (!r) {
+            alert("Invalid or expired code.");
+            return;
+          }
+          setRequests((all) => all.map((x) => (x.id === r.id ? { ...x, status: "rejected" } : x)));
+          alert("Rejected.");
+        }}
+      />
+
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        // data + setters
+        bankConnected={bankConnected}
+        bankName={bankName}
+        setBankConnected={setBankConnected}
+        setBankName={setBankName}
+        keyholders={keyholders}
+        setKeyholders={setKeyholders}
+        language={language}
+        setLanguage={setLanguage}
+        budgets={budgets}
+        setBudgets={setBudgets}
+        // open portal
+        openPortal={() => setKeyholderPortalOpen(true)}
+      />
+
+      <GoalAchieved open={showGoal} onClose={() => setShowGoal(false)} />
     </div>
   );
 }
 
-// ------------- Goal Achieved Modal -------------
-function GoalAchieved({ open, onClose }: { open: boolean; onClose: () => void }) {
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║  3) PAGE SECTIONS (HOME, VAULTS, BANKER, REWARDS)              ║
+   ╚════════════════════════════════════════════════════════════════╝ */
+
+function HomeScreen({ totalSaved }: { totalSaved: number }) {
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div initial={{ scale: 0.96, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.96, opacity: 0 }} className="w-full max-w-sm rounded-3xl bg-white p-6 text-center">
-            <div className="mx-auto h-20 w-20 rounded-full grid place-items-center bg-emerald-100 mb-4">
-              <Shield className="h-10 w-10 text-emerald-600" />
+    <div className="px-4 py-5 space-y-12">
+      {/* Overview */}
+      <section className="space-y-4">
+        <h2 className="text-2xl font-semibold">Home</h2>
+        <Card className="p-4 bg-emerald-600 text-white">
+          <div className="flex items-start gap-4">
+            <div className="h-12 w-12 rounded-xl bg-emerald-700 grid place-items-center">
+              <Sparkles className="h-6 w-6" />
             </div>
-            <div className="text-2xl font-bold mb-1">Goal achieved!</div>
-            <p className="text-gray-500 mb-6">Nice job! I knew you had it in you.</p>
-            <button onClick={onClose} className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-medium">
-              Continue
-            </button>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            <div className="flex-1">
+              <div className="font-semibold text-lg">Earn More</div>
+              <p className="text-sm/5 opacity-90">
+                Find flexible side gigs to make extra cash
+              </p>
+            </div>
+            <ChevronRight className="h-5 w-5" />
+          </div>
+        </Card>
+      </section>
+
+      {/* Totals */}
+      <section className="space-y-3">
+        <h3 className="text-lg font-semibold">Your savings</h3>
+        <div className="grid grid-cols-1 gap-3">
+          <Card className="p-4 bg-[#0E3559] text-white">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm opacity-80">Total saved</span>
+              <Wallet className="h-4 w-4 opacity-80" />
+            </div>
+            <div className="text-2xl font-bold">{currency(totalSaved)}</div>
+          </Card>
+        </div>
+      </section>
+    </div>
   );
 }
 
-// ------------- Transfer Modal (to Bank OR between Vaults) -------------
+function VaultsScreen({
+  vaults,
+  setShowTransfer,
+  setAddFundsModal,
+  setLockModal,
+  setUnlockModal,
+}: {
+  vaults: Vault[];
+  setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
+  setAddFundsModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
+  setLockModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
+  setUnlockModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
+}) {
+  return (
+    <div className="px-4 py-5 space-y-5">
+      <h2 className="text-2xl font-semibold">Vaults</h2>
+
+      {vaults.map((v) => {
+        const pct = (v.saved / v.target) * 100;
+        return (
+          <Card key={v.id} className="p-4">
+            {/* Header */}
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="font-semibold">{v.name}</div>
+                <div className="text-sm text-gray-500">
+                  {currency(v.target)}
+                  {v.dueDays ? ` due in ${v.dueDays} days` : " target"}
+                </div>
+              </div>
+              <div className="text-right text-sm text-gray-500">
+                Locked: {currency(v.locked)}
+              </div>
+            </div>
+
+            {/* Progress */}
+            <div className="mt-3">
+              <Progress value={pct} />
+            </div>
+
+            {/* Actions */}
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Saved:{" "}
+                <span className="font-medium text-gray-900">
+                  {currency(v.saved)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {/* Transfer */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setShowTransfer({ id: v.id })}
+                  className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1 bg-gray-900 text-white"
+                >
+                  <ArrowRightLeft className="h-4 w-4" /> Transfer
+                </motion.button>
+
+                {/* Add Funds */}
+                <motion.button
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setAddFundsModal({ vaultId: v.id })}
+                  className="px-3 py-1.5 rounded-full text-sm flex items-center gap-1 bg-emerald-600 text-white"
+                >
+                  <Plus className="h-4 w-4" /> Add funds
+                </motion.button>
+
+                {/* Raised lock square (ONE TAP: opens correct modal) */}
+                <motion.button
+                  whileTap={{ scale: 0.92 }}
+                  animate={{
+                    scale: 1,
+                    boxShadow: v.isLocked
+                      ? "0 3px 5px rgba(0,0,0,0.25)"
+                      : "inset 0 2px 4px rgba(0,0,0,0.15)",
+                    backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
+                  }}
+                  transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                  onClick={() => {
+                    if (v.isLocked) setUnlockModal({ vaultId: v.id });
+                    else setLockModal({ vaultId: v.id });
+                  }}
+                  className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
+                  aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
+                  title={v.isLocked ? "Tap to request unlock" : "Tap to lock funds"}
+                >
+                  {v.isLocked ? (
+                    <Lock className="h-4 w-4 text-gray-600" />
+                  ) : (
+                    <Unlock className="h-4 w-4 text-emerald-600" />
+                  )}
+                </motion.button>
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+
+      {/* Create a new vault */}
+      <Card className="p-4 border-dashed">
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={() => alert("Use Settings → Budgets to plan; New Vault modal available above.")}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-gray-50 hover:bg-gray-100"
+        >
+          <Plus className="h-5 w-5" /> Tip: Use the “Create new vault” button from the design phase (optional)
+        </motion.button>
+      </Card>
+    </div>
+  );
+}
+
+function BankerChat() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<
+    Array<{ role: "banker" | "user"; text: string }>
+  >([
+    {
+      role: "banker",
+      text: "You spent $40 on pizza yesterday. I'm not upset. I'm just… disappointed.",
+    },
+    {
+      role: "banker",
+      text: "That's 40% of what you saved in your Rent safe deposit box last month.",
+    },
+  ]);
+
+  const send = () => {
+    if (!input.trim()) return;
+    setMessages((m) => [...m, { role: "user", text: input.trim() }]);
+    setInput("");
+    setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        { role: "banker", text: "Let's redirect that energy into your vault." },
+      ]);
+    }, 600);
+  };
+
+  return (
+    <div className="px-4 py-5">
+      <div className="text-2xl font-semibold mb-4">The Banker</div>
+      <div className="space-y-3 mb-20">
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[78%] rounded-2xl px-4 py-2 text-[15px] ${
+                m.role === "user"
+                  ? "bg-gray-900 text-white"
+                  : "bg-gray-100 text-gray-900"
+              }`}
+            >
+              {m.text}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="fixed bottom-16 left-0 right-0">
+        <div className="mx-auto max-w-md px-4">
+          <Card className="p-2 flex items-center gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Message The Banker"
+              className="flex-1 px-3 py-2 outline-none"
+            />
+            <button
+              onClick={send}
+              className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm"
+            >
+              Send
+            </button>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Rewards() {
+  return (
+    <div className="px-4 py-5 space-y-4">
+      <h2 className="text-2xl font-semibold">Rewards</h2>
+      <Card className="p-5 bg-[#0E3559] text-white">
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-2xl bg-white/10 grid place-items-center">
+            <Star className="h-6 w-6" />
+          </div>
+          <div>
+            <div className="font-semibold text-lg">Goal streak</div>
+            <div className="text-sm text-white/80">
+              Hit 3 goals this month to earn a badge
+            </div>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║  4) MODALS (Transfer, AddFunds, Lock, Unlock, Portal, Goal)    ║
+   ╚════════════════════════════════════════════════════════════════╝ */
+
+/* ── 4.1 Transfer Modal ─────────────────────────────────────────── */
 function TransferModal({
   open,
   onClose,
@@ -701,8 +713,8 @@ function TransferModal({
 }: {
   open: boolean;
   onClose: () => void;
-  sourceVault: { id: string; name: string; saved: number; locked: number } | null;
-  vaults: Array<{ id: string; name: string; target: number; saved: number; locked: number }>;
+  sourceVault: Vault | null;
+  vaults: Vault[];
   onTransferToBank: (amount: number) => void;
   onTransferBetween: (amount: number, toVaultId: string) => void;
 }) {
@@ -710,26 +722,515 @@ function TransferModal({
   const [amount, setAmount] = useState(100);
   const [toVaultId, setToVaultId] = useState<string>("");
 
-  // ✅ HOOKS MUST COME FIRST (and run every render in same order)
-  const sourceId = sourceVault?.id ?? "";
-  const otherVaults = useMemo(
-    () => vaults.filter((v) => v.id !== sourceId),
-    [vaults, sourceId]
-  );
-
-  useEffect(() => {
-    // safe: runs every render in the same order; exits if not ready
-    if (mode !== "vault") return;
-    if (!toVaultId && otherVaults.length > 0) {
-      setToVaultId(otherVaults[0].id);
-    }
-  }, [mode, otherVaults, toVaultId]);
-
-  // Early return AFTER hooks to keep hook order stable
-  if (!sourceVault) return null;
+  if (!open || !sourceVault) return null;
 
   const unlocked = Math.max(0, sourceVault.saved - sourceVault.locked);
+  const otherVaults = vaults.filter((v) => v.id !== sourceVault.id);
+  const effectiveToId = toVaultId || (otherVaults[0]?.id ?? "");
 
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Transfer</div>
+          <div className="text-sm text-gray-500 mb-1">
+            From: <span className="font-medium text-gray-800">{sourceVault.name}</span>
+          </div>
+          <div className="text-xs text-gray-500 mb-4">
+            Available from unlocked: <b>${unlocked}</b>
+          </div>
+
+          {/* Mode switch */}
+          <div className="mb-4 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setMode("bank")}
+              className={`py-2 rounded-xl border ${
+                mode === "bank" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+              }`}
+            >
+              To bank
+            </button>
+            <button
+              onClick={() => setMode("vault")}
+              className={`py-2 rounded-xl border ${
+                mode === "vault" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
+              }`}
+            >
+              Between vaults
+            </button>
+          </div>
+
+          {/* Amount */}
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              max={unlocked}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          {/* Quick chips */}
+          <div className="mt-4 flex gap-2">
+            {[25, 50, 100].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAmount(Math.min(n, unlocked))}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
+                ${n}
+              </button>
+            ))}
+            <button
+              onClick={() => setAmount(unlocked)}
+              className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+            >
+              Max
+            </button>
+          </div>
+
+          {/* Destination */}
+          {mode === "vault" && (
+            <div className="mt-4">
+              <label className="text-sm text-gray-600">To vault</label>
+              <select
+                value={effectiveToId}
+                onChange={(e) => setToVaultId(e.target.value)}
+                className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
+              >
+                {otherVaults.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={
+                amount <= 0 || amount > unlocked || (mode === "vault" && !effectiveToId)
+              }
+              onClick={() => {
+                if (amount <= 0 || amount > unlocked) return;
+                if (mode === "bank") onTransferToBank(amount);
+                else onTransferBetween(amount, effectiveToId);
+                onClose();
+              }}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 && amount <= unlocked && (mode === "bank" || effectiveToId)
+                  ? "bg-emerald-600"
+                  : "bg-gray-300"
+              }`}
+            >
+              {mode === "bank" ? "Transfer to bank" : "Transfer to vault"}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* ── 4.2 Add Funds Modal ────────────────────────────────────────── */
+function AddFundsModal({
+  open,
+  onClose,
+  vault,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  onSubmit: (amount: number) => void;
+}) {
+  const [amount, setAmount] = useState(50);
+  if (!open || !vault) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Add funds</div>
+          <div className="text-sm text-gray-500 mb-3">
+            Add money to “{vault.name}”.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            {[25, 50, 100].map((n) => (
+              <button
+                key={n}
+                onClick={() => setAmount(n)}
+                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
+              >
+                ${n}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={amount <= 0}
+              onClick={() => onSubmit(amount)}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 ? "bg-emerald-600" : "bg-gray-300"
+              }`}
+            >
+              Add
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* ── 4.3 Lock Modal (with "Require Keyholder" toggle) ───────────── */
+function LockModal({
+  open,
+  onClose,
+  vault,
+  keyholderAvailable,
+  initialRequireKeyholder,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  keyholderAvailable: boolean;
+  initialRequireKeyholder: boolean;
+  onSubmit: (amount: number, requireKeyholder: boolean) => void;
+}) {
+  const [amount, setAmount] = useState(100);
+  const [usePartner, setUsePartner] = useState(initialRequireKeyholder);
+
+  if (!open || !vault) return null;
+  const lockable = Math.max(0, vault.saved - vault.locked);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-2">Lock funds</div>
+          <div className="text-sm text-gray-500 mb-3">
+            Lock up to <b>${lockable}</b> in “{vault.name}”.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              max={lockable}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <div className="mt-4 p-3 rounded-xl border flex items-center justify-between">
+            <div>
+              <div className="font-medium text-sm">Require Keyholder for early unlock</div>
+              <div className="text-xs text-gray-500">
+                {keyholderAvailable
+                  ? "Your partner must approve an early unlock."
+                  : "No partner configured — toggle has no effect until you add one."}
+              </div>
+            </div>
+            <label className="inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={usePartner}
+                onChange={(e) => setUsePartner(e.target.checked)}
+              />
+              <div
+                className={`w-11 h-6 rounded-full ${
+                  usePartner ? "bg-emerald-600" : "bg-gray-300"
+                } relative transition`}
+              >
+                <span
+                  className={`absolute top-0.5 ${
+                    usePartner ? "left-6" : "left-0.5"
+                  } h-5 w-5 bg-white rounded-full transition`}
+                />
+              </div>
+            </label>
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              disabled={amount <= 0 || amount > lockable}
+              onClick={() => onSubmit(amount, usePartner)}
+              className={`py-3 rounded-xl text-white ${
+                amount > 0 && amount <= lockable ? "bg-emerald-600" : "bg-gray-300"
+              }`}
+            >
+              Lock
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* ── 4.4 Unlock Modal (with "Send to partner" toggle) ───────────── */
+function UnlockModal({
+  open,
+  onClose,
+  vault,
+  defaultSendToPartner,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  vault: Vault | null;
+  defaultSendToPartner: boolean;
+  onSubmit: (amount: number, reason: string, sendToPartner: boolean) => void;
+}) {
+  const [amount, setAmount] = useState(100);
+  const [reason, setReason] = useState("");
+  const [sendToPartner, setSendToPartner] = useState(defaultSendToPartner);
+
+  if (!open || !vault) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-40 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+        >
+          <div className="text-lg font-semibold mb-1">Request early unlock</div>
+          <div className="text-sm text-gray-500 mb-4">
+            {sendToPartner
+              ? "We’ll send this to your accountability partner for approval."
+              : "No partner approval required — unlock will process immediately."}
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2 mb-3">
+            <span className="text-gray-500 mr-1">$</span>
+            <input
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value || 0))}
+              type="number"
+              min={0}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason for unlock..."
+            className="w-full rounded-xl border px-3 py-2 text-sm outline-none mb-4"
+          />
+
+          <div className="p-3 rounded-xl border flex items-center justify-between mb-4">
+            <div>
+              <div className="font-medium text-sm">Send to accountability partner</div>
+              <div className="text-xs text-gray-500">
+                Toggle off to unlock instantly (if allowed).
+              </div>
+            </div>
+            <label className="inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={sendToPartner}
+                onChange={(e) => setSendToPartner(e.target.checked)}
+              />
+              <div
+                className={`w-11 h-6 rounded-full ${
+                  sendToPartner ? "bg-emerald-600" : "bg-gray-300"
+                } relative transition`}
+              >
+                <span
+                  className={`absolute top-0.5 ${
+                    sendToPartner ? "left-6" : "left-0.5"
+                  } h-5 w-5 bg-white rounded-full transition`}
+                />
+              </div>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <button onClick={onClose} className="py-3 rounded-xl border">
+              Cancel
+            </button>
+            <button
+              onClick={() => onSubmit(amount, reason, sendToPartner)}
+              className="py-3 rounded-xl bg-emerald-600 text-white"
+            >
+              Submit
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* ── 4.5 Keyholder Portal (demo) ────────────────────────────────── */
+function KeyholderPortalModal({
+  open,
+  onClose,
+  requests,
+  onApprove,
+  onReject,
+}: {
+  open: boolean;
+  onClose: () => void;
+  requests: UnlockRequest[];
+  onApprove: (code: string) => void;
+  onReject: (code: string) => void;
+}) {
+  const [code, setCode] = useState("");
+
+  if (!open) return null;
+
+  const pending = requests.filter((r) => r.status === "pending");
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          className="w-full max-w-sm rounded-3xl bg-white p-6"
+          initial={{ y: 16, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 16, opacity: 0 }}
+        >
+          <div className="text-lg font-semibold mb-1">Keyholder Portal (demo)</div>
+          <div className="text-sm text-gray-500 mb-3">
+            Enter the 6-digit code from the SMS to approve or reject.
+          </div>
+
+          <div className="flex items-center rounded-xl border px-3 py-2 mb-3">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="6-digit code"
+              maxLength={6}
+              className="w-full outline-none py-2"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <button onClick={() => setCode("")} className="py-2 rounded-xl border">
+              Clear
+            </button>
+            <button onClick={() => onReject(code)} className="py-2 rounded-xl bg-rose-600 text-white">
+              Reject
+            </button>
+            <button onClick={() => onApprove(code)} className="py-2 rounded-xl bg-emerald-600 text-white">
+              Approve
+            </button>
+          </div>
+
+          <div className="mt-5">
+            <div className="text-sm font-medium mb-2">Pending requests</div>
+            {pending.length === 0 ? (
+              <div className="text-sm text-gray-500">No pending requests.</div>
+            ) : (
+              <div className="space-y-2">
+                {pending.map((r) => (
+                  <div key={r.id} className="p-3 rounded-xl border text-sm">
+                    <div className="font-medium">Vault: {r.vaultId}</div>
+                    <div>Amount: ${r.amount}</div>
+                    <div>Reason: {r.reason || "(none)"}</div>
+                    <div className="text-xs text-gray-500">Code: {r.code}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6">
+            <button onClick={onClose} className="w-full py-3 rounded-xl border">
+              Close
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+/* ── 4.6 Celebrate Modal ────────────────────────────────────────── */
+function GoalAchieved({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
   return (
     <AnimatePresence>
       {open && (
@@ -740,235 +1241,24 @@ function TransferModal({
           exit={{ opacity: 0 }}
         >
           <motion.div
-            initial={{ y: 16, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 16, opacity: 0 }}
-            className="w-full max-w-sm rounded-3xl bg-white p-6"
+            initial={{ scale: 0.96, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.96, opacity: 0 }}
+            className="w-full max-w-sm rounded-3xl bg-white p-6 text-center"
           >
-            <div className="text-lg font-semibold mb-2">Transfer</div>
-            <div className="text-sm text-gray-500 mb-1">
-              From: <span className="font-medium text-gray-800">{sourceVault.name}</span>
+            <div className="mx-auto h-20 w-20 rounded-full grid place-items-center bg-emerald-100 mb-4">
+              <Shield className="h-10 w-10 text-emerald-600" />
             </div>
-            <div className="text-xs text-gray-500 mb-4">
-              Available from unlocked: <b>${unlocked}</b>
-            </div>
-
-            {/* Mode switch */}
-            <div className="mb-4 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setMode("bank")}
-                className={`py-2 rounded-xl border ${
-                  mode === "bank" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
-                }`}
-              >
-                To bank
-              </button>
-              <button
-                onClick={() => setMode("vault")}
-                className={`py-2 rounded-xl border ${
-                  mode === "vault" ? "bg-gray-900 text-white border-gray-900" : "bg-white"
-                }`}
-              >
-                Between vaults
-              </button>
-            </div>
-
-            {/* Amount */}
-            <div className="flex items-center rounded-xl border px-3 py-2">
-              <span className="text-gray-500 mr-1">$</span>
-              <input
-                value={amount}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setAmount(Number(e.target.value || 0))
-                }
-                type="number"
-                min={0}
-                max={unlocked}
-                className="w-full outline-none py-2"
-              />
-            </div>
-
-            {/* Quick chips */}
-            <div className="mt-4 flex gap-2">
-              {[25, 50, 100].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => setAmount(Math.min(n, unlocked))}
-                  className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
-                >
-                  ${n}
-                </button>
-              ))}
-              <button
-                onClick={() => setAmount(unlocked)}
-                className="px-3 py-1.5 rounded-full bg-gray-100 text-sm"
-              >
-                Max
-              </button>
-            </div>
-
-            {/* Destination (if moving between vaults) */}
-            {mode === "vault" && (
-              <div className="mt-4">
-                <label className="text-sm text-gray-600">To vault</label>
-                <select
-                  value={toVaultId}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setToVaultId(e.target.value)
-                  }
-                  className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
-                >
-                  {otherVaults.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button onClick={onClose} className="py-3 rounded-xl border">
-                Cancel
-              </button>
-              <button
-                disabled={amount <= 0 || amount > unlocked || (mode === "vault" && !toVaultId)}
-                onClick={() => {
-                  if (amount <= 0 || amount > unlocked) return;
-                  if (mode === "bank") {
-                    onTransferToBank(amount);
-                  } else {
-                    if (!toVaultId) return;
-                    onTransferBetween(amount, toVaultId);
-                  }
-                  onClose();
-                }}
-                className={`py-3 rounded-xl text-white ${
-                  amount > 0 && amount <= unlocked && (mode === "bank" || toVaultId)
-                    ? "bg-emerald-600"
-                    : "bg-gray-300"
-                }`}
-              >
-                {mode === "bank" ? "Transfer to bank" : "Transfer to vault"}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-
-// ------------- Lock Modal (status + actions) -------------
-function LockModal({
-  open,
-  onClose,
-  vault,
-  onLockNow,
-  onRequestUnlock,
-}: {
-  open: boolean;
-  onClose: () => void;
-  vault: Vault | null;
-  onLockNow: (id: string) => void;
-  onRequestUnlock: (id: string, amount: number, reason: string) => void;
-}) {
-  const [amount, setAmount] = useState(100);
-  const [reason, setReason] = useState("");
-  if (!vault) return null;
-
-  const lockable = Math.max(0, vault.saved - vault.locked);
-  const isLocked = vault.locked > 0;
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="w-full max-w-sm rounded-3xl bg-white p-6">
-            <div className="mx-auto h-16 w-16 rounded-full bg-emerald-100 grid place-items-center mb-3">
-              <Lock className={`h-8 w-8 ${isLocked ? "text-emerald-600" : "text-gray-500"}`} />
-            </div>
-
-            <h3 className="text-xl font-semibold mb-1 text-center">{isLocked ? "Funds Locked" : "Unlocked Vault"}</h3>
-            <p className="text-gray-600 mb-4 text-sm text-center">
-              {isLocked
-                ? "These funds are protected until your unlock date or approval from your keyholder."
-                : "Funds are currently unlocked. Locking will prevent withdrawals until due."}
+            <div className="text-2xl font-bold mb-1">Goal achieved!</div>
+            <p className="text-gray-500 mb-6">
+              Nice job! I knew you had it in you.
             </p>
-
-            {!isLocked ? (
-              <>
-                <div className="text-sm text-gray-600 mb-2">Lock available up to: <b>${lockable}</b></div>
-                <div className="flex items-center rounded-xl border px-3 py-2 mb-4">
-                  <span className="text-gray-500 mr-1">$</span>
-                  <input
-                    value={amount}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
-                    type="number"
-                    min={0}
-                    max={lockable}
-                    className="w-full outline-none py-2"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-sm text-gray-600 mb-2">Request early unlock</div>
-                <div className="flex items-center rounded-xl border px-3 py-2 mb-3">
-                  <span className="text-gray-500 mr-1">$</span>
-                  <input
-                    value={amount}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(Number(e.target.value || 0))}
-                    type="number"
-                    min={0}
-                    max={vault.locked}
-                    className="w-full outline-none py-2"
-                  />
-                </div>
-                <textarea
-                  value={reason}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
-                  placeholder="Reason for unlock..."
-                  className="w-full rounded-xl border px-3 py-2 text-sm outline-none mb-2"
-                />
-              </>
-            )}
-
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <button onClick={onClose} className="py-3 rounded-xl border border-gray-300">
-                Close
-              </button>
-              {!isLocked ? (
-                <button
-                  onClick={() => {
-                    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-  navigator.vibrate?.(30);
-}
-                    onLockNow(vault.id);
-                    onClose();
-                  }}
-                  className="py-3 rounded-xl text-white font-medium bg-emerald-600 hover:bg-emerald-700"
-                  disabled={lockable <= 0}
-                >
-                  Lock Now
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    if (amount <= 0) return;
-                    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-  navigator.vibrate?.(30);
-}
-                    onRequestUnlock(vault.id, amount, reason);
-                    onClose();
-                  }}
-                  className="py-3 rounded-xl text-white font-medium bg-gray-700 hover:bg-gray-800"
-                >
-                  Request Unlock
-                </button>
-              )}
-            </div>
+            <button
+              onClick={onClose}
+              className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+            >
+              Continue
+            </button>
           </motion.div>
         </motion.div>
       )}
@@ -976,526 +1266,495 @@ function LockModal({
   );
 }
 
-// ------------- New Vault Modal (name, goal, MM/DD/YYYY + calendar, partner) -------------
-function NewVaultModal({
+/* ╔════════════════════════════════════════════════════════════════╗
+   ║  5) SETTINGS DRAWER + UTIL ROWS                                ║
+   ╚════════════════════════════════════════════════════════════════╝ */
+
+function SettingsDrawer({
   open,
   onClose,
-  onCreate,
+  bankConnected,
+  bankName,
+  setBankConnected,
+  setBankName,
+  keyholders,
+  setKeyholders,
+  language,
+  setLanguage,
+  budgets,
+  setBudgets,
+  openPortal,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (v: { name: string; target: number; unlockDate: string | null; partnerEnabled: boolean; partnerContact: string }) => void;
+  bankConnected: boolean;
+  bankName: string;
+  setBankConnected: (v: boolean) => void;
+  setBankName: (n: string) => void;
+  keyholders: Array<{ id: string; name: string; contact: string }>;
+  setKeyholders: React.Dispatch<
+    React.SetStateAction<Array<{ id: string; name: string; contact: string }>>
+  >;
+  language: "en" | "es";
+  setLanguage: (l: "en" | "es") => void;
+  budgets: { rent: number; emergency: number; spending: number };
+  setBudgets: React.Dispatch<
+    React.SetStateAction<{ rent: number; emergency: number; spending: number }>
+  >;
+  openPortal: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [target, setTarget] = useState<number>(500);
+  const [view, setView] = useState<
+    "root" | "bank" | "partners" | "budgets" | "language" | "help" | "signout"
+  >("root");
 
-  // Date text with validation + calendar
-  const [dateText, setDateText] = useState<string>("");
-  const [dateError, setDateError] = useState<string>("");
-  const datePickerRef = useRef<HTMLInputElement | null>(null);
+  // local state for each sub-view
+  const [pendingProvider, setPendingProvider] = useState<string>("");
+  const [khName, setKhName] = useState("");
+  const [khContact, setKhContact] = useState("");
 
-  const [partnerEnabled, setPartnerEnabled] = useState(false);
-  const [partnerContact, setPartnerContact] = useState("");
+  const totalBudget = budgets.rent + budgets.emergency + budgets.spending;
+  const providers = ["Chase", "Bank of America", "Wells Fargo", "Cash App", "Citi", "ADP"];
 
-  // Helpers
-  function parseUsDate(s: string): Date | null {
-    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!m) return null;
-    const mm = Number(m[1]);
-    const dd = Number(m[2]);
-    const yyyy = Number(m[3]);
-    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-    const d = new Date(yyyy, mm - 1, dd);
-    if (d.getFullYear() !== yyyy || d.getMonth() !== mm - 1 || d.getDate() !== dd) return null;
-    return d;
-  }
-  function formatUsDate(d: Date): string {
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    const yyyy = d.getFullYear();
-    return `${mm}/${dd}/${yyyy}`;
-    }
-  function toIsoDate(s: string): string | null {
-    const d = parseUsDate(s);
-    if (!d) return null;
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const dd = String(d.getDate()).padStart(2, "0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  const isDateValid = !dateText || !!toIsoDate(dateText);
-  const isNameValid = name.trim().length > 0;
-  const canSubmit = isNameValid && isDateValid;
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div className="fixed inset-0 z-50 bg-black/40 grid place-items-center p-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }} className="w-full max-w-sm rounded-3xl bg-white p-6">
-            <div className="text-lg font-semibold mb-3">Create new vault</div>
-
-            <label className="text-sm text-gray-600">Vault name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="mt-1 w-full rounded-xl border px-3 py-2 outline-none mb-3"
-              placeholder="e.g., Vacation, Car, Tuition"
-            />
-
-            <label className="text-sm text-gray-600">Goal amount ($)</label>
-            <input
-              type="number"
-              value={target}
-              min={1}
-              onChange={(e) => setTarget(Number(e.target.value || 0))}
-              className="mt-1 w-full rounded-xl border px-3 py-2 outline-none mb-3"
-            />
-
-            <label className="text-sm text-gray-600">Unlock date (optional)</label>
-            <div className="mt-1 relative">
-              <input
-                inputMode="numeric"
-                placeholder="MM/DD/YYYY"
-                value={dateText}
-                onChange={(e) => {
-                  const val = e.target.value.replace(/[^\d/]/g, "");
-                  setDateText(val);
-                  if (val.length === 10) {
-                    const ok = parseUsDate(val) !== null;
-                    setDateError(ok ? "" : "Please use MM/DD/YYYY and a real calendar date.");
-                  } else {
-                    setDateError("");
-                  }
-                }}
-                onBlur={() => {
-                  if (!dateText) {
-                    setDateError("");
-                    return;
-                  }
-                  const ok = parseUsDate(dateText) !== null;
-                  setDateError(ok ? "" : "Please use MM/DD/YYYY and a real calendar date.");
-                }}
-                className={`w-full rounded-xl border px-3 py-2 pr-11 outline-none ${dateError ? "border-rose-400" : ""}`}
-                maxLength={10}
-                pattern="^\d{2}/\d{2}/\d{4}$"
-              />
-              <button
-                type="button"
-                onClick={() => datePickerRef.current?.showPicker?.()}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-gray-50"
-                title="Pick a date"
-              >
-                <Calendar className="h-5 w-5 text-gray-600" />
-              </button>
-              <input
-                ref={datePickerRef}
-                type="date"
-                onChange={(e) => {
-                  const v = e.target.value; // YYYY-MM-DD
-                  if (!v) return;
-                  const [yyyy, mm, dd] = v.split("-");
-                  const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-                  const formatted = formatUsDate(d);
-                  setDateText(formatted);
-                  setDateError("");
-                }}
-                className="sr-only absolute opacity-0 pointer-events-none"
-                tabIndex={-1}
-              />
-            </div>
-            {dateError && <div className="mt-1 text-xs text-rose-600">{dateError}</div>}
-
-            <div className="flex items-center gap-2 mt-4 mb-2">
-              <input id="partner" type="checkbox" checked={partnerEnabled} onChange={(e) => setPartnerEnabled(e.target.checked)} />
-              <label htmlFor="partner" className="text-sm">
-                Add accountability partner
-              </label>
-            </div>
-            <input
-              value={partnerContact}
-              onChange={(e) => setPartnerContact(e.target.value)}
-              placeholder="email or phone (optional)"
-              className="w-full rounded-xl border px-3 py-2 outline-none mb-4 disabled:opacity-50"
-              disabled={!partnerEnabled}
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={onClose} className="py-3 rounded-xl border">
-                Cancel
-              </button>
-              <button
-                disabled={!canSubmit}
-                onClick={() => {
-                  if (dateText && !toIsoDate(dateText)) {
-                    setDateError("Please use MM/DD/YYYY and a real calendar date.");
-                    return;
-                  }
-                  onCreate({
-                    name: name.trim() || "New goal",
-                    target: Math.max(1, target),
-                    unlockDate: dateText ? toIsoDate(dateText) : null,
-                    partnerEnabled,
-                    partnerContact: partnerContact.trim(),
-                  });
-                }}
-                className={`py-3 rounded-xl text-white font-medium transition ${
-                  canSubmit ? "bg-emerald-600 hover:bg-emerald-700" : "bg-gray-300 cursor-not-allowed"
-                }`}
-              >
-                Create
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-// ------------- Banker Chat -------------
-function BankerChat({ onCelebrate }: { onCelebrate: () => void }) {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "banker" | "user"; text: string }>>([
-    { role: "banker", text: "You spent $40 on pizza yesterday. I'm not upset. I'm just… disappointed." },
-    { role: "banker", text: "That's 40% of what you saved in your Rent safe deposit box last month." },
-    { role: "banker", text: "Was it worth delaying your goal?" },
-  ]);
-
-  const send = () => {
-    if (!input.trim()) return;
-    setMessages((m) => [...m, { role: "user", text: input.trim() }]);
-    setInput("");
-    setTimeout(() => {
-      const lines = [
-        "Duly noted. Let’s redirect that energy into your vault.",
-        "Understood. I care about outcomes — want to move $50 now?",
-        "Thanks for the honesty. Tap 'Demo Win' to see your progress.",
-      ];
-      const text = lines[Math.floor(Math.random() * lines.length)];
-      setMessages((m) => [...m, { role: "banker", text }]);
-    }, 500);
+  const resetAndClose = () => {
+    setView("root");
+    onClose();
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="px-4 py-5">
-      <div className="text-2xl font-semibold mb-4">The Banker</div>
-      <div className="space-y-3">
-        {messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[78%] rounded-2xl px-4 py-2 text-[15px] ${m.role === "user" ? "bg-gray-900 text-white" : "bg-gray-100"}`}>{m.text}</div>
-          </div>
-        ))}
-      </div>
-      <div className="h-20" />
-      <div className="fixed bottom-16 left-0 right-0">
-        <div className="mx-auto max-w-md px-4">
-          <Card className="p-2 flex items-center gap-2">
-            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Message The Banker" className="flex-1 px-3 py-2 outline-none" />
-            <button onClick={send} className="px-3 py-2 rounded-xl bg-gray-900 text-white text-sm">
-              Send
-            </button>
-            <button onClick={onCelebrate} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm">
-              Celebrate
-            </button>
-          </Card>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ------------- Onboarding Wizard -------------
-function Stepper({ step }: { step: OnbStep }) {
-  const steps = ["Welcome", "Connect", "Split", "Lock", "Keyholder", "Review"];
-  return (
-    <div className="flex items-center justify-between gap-2 text-xs mb-4">
-      {steps.map((label, idx) => (
-        <div key={label} className="flex-1 flex items-center gap-2">
-          <div className={`h-7 px-2 rounded-full border flex items-center gap-1 ${idx <= step ? "bg-emerald-50 border-emerald-200" : "bg-white"}`}>
-            {idx <= step ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <span className="h-3.5 w-3.5 rounded-full bg-gray-200" />}
-            <span className={`hidden sm:block ${idx <= step ? "text-emerald-700" : "text-gray-500"}`}>{label}</span>
-          </div>
-          {idx < steps.length - 1 && <div className={`h-px flex-1 ${idx < step ? "bg-emerald-200" : "bg-gray-200"}`} />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function OnboardingWizard(props: {
-  open: boolean;
-  step: OnbStep;
-  setStep: (s: OnbStep) => void;
-  connected: boolean;
-  setConnected: (b: boolean) => void;
-  netPay: number;
-  setNetPay: (n: number) => void;
-  alloc: { rent: number; emergency: number; spending: number };
-  setAlloc: (a: { rent: number; emergency: number; spending: number }) => void;
-  lockUntilDue: boolean;
-  setLockUntilDue: (b: boolean) => void;
-  keyholder: { enabled: boolean; contact: string; rule: string };
-  setKeyholder: (k: { enabled: boolean; contact: string; rule: string }) => void;
-  onClose: () => void;
-  onFinish: () => void;
-}) {
-  const { open, step, setStep, connected, setConnected, netPay, setNetPay, alloc, setAlloc, lockUntilDue, setLockUntilDue, keyholder, setKeyholder, onClose, onFinish } =
-    props;
-
-  const totalPct = alloc.rent + alloc.emergency + alloc.spending;
-  const remaining = Math.max(0, 100 - totalPct);
-
-  return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-50 bg-white overflow-y-auto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <div className="mx-auto max-w-md px-4 py-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">Setup</div>
-              <button onClick={onClose} className="text-sm text-gray-500">
-                Close
-              </button>
-            </div>
-            <Stepper step={step} />
+        <motion.div
+          className="fixed inset-0 z-50 flex justify-end bg-black/40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          {/* backdrop */}
+          <div className="flex-1" onClick={resetAndClose} />
 
-            {step === OnbStep.Welcome && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <PiggyBank className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Welcome to LockBox</div>
+          {/* drawer */}
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 260, damping: 25 }}
+            className="w-80 max-w-full h-full bg-white shadow-2xl p-5 flex flex-col"
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                {view !== "root" ? (
+                  <motion.button
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setView("root")}
+                    className="p-2 rounded-full hover:bg-gray-100"
+                    aria-label="Back"
+                  >
+                    <ChevronLeft className="h-5 w-5 text-gray-700" />
+                  </motion.button>
+                ) : null}
+                <div className="text-lg font-semibold">
+                  {view === "root" && "Settings"}
+                  {view === "bank" && "Connect Bank"}
+                  {view === "partners" && "Accountability Partners"}
+                  {view === "budgets" && "Budgets & Savings"}
+                  {view === "language" && "Language"}
+                  {view === "help" && "Help & Feedback"}
+                  {view === "signout" && "Sign Out"}
                 </div>
-                <p className="text-gray-600 mb-4">We’ll auto-split your paycheck into a rent safe-deposit box and savings so your bills are always ready on time.</p>
-                <ul className="text-sm text-gray-600 space-y-2 mb-4">
-                  <li className="flex items-center gap-2">
-                    <Banknote className="h-4 w-4" /> Connect income
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <ArrowRightLeft className="h-4 w-4" /> Set your split
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Lock className="h-4 w-4" /> Lock until due date (optional)
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Users className="h-4 w-4" /> Add a Keyholder (optional)
-                  </li>
-                </ul>
-                <div className="flex gap-3">
-                  <button onClick={() => setStep(OnbStep.Connect)} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white">
-                    Start
-                  </button>
+              </div>
+
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={resetAndClose}
+                className="p-2 rounded-full hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5 text-gray-700" />
+              </motion.button>
+            </div>
+
+            {/* Root list */}
+            {view === "root" && (
+              <div className="flex-1 overflow-y-auto">
+                <ListRow
+                  icon={<Link2 className="h-5 w-5" />}
+                  title="Connect Bank"
+                  subtitle={bankConnected ? `Connected: ${bankName}` : "Not connected"}
+                  onClick={() => setView("bank")}
+                />
+                <ListRow
+                  icon={<Users className="h-5 w-5" />}
+                  title="Manage Accountability Partners"
+                  subtitle={`${keyholders.length} partner${keyholders.length === 1 ? "" : "s"}`}
+                  onClick={() => setView("partners")}
+                />
+                <ListRow
+                  icon={<CreditCard className="h-5 w-5" />}
+                  title="Manage Budgets & Savings"
+                  subtitle={`Split: ${budgets.rent}/${budgets.emergency}/${budgets.spending}`}
+                  onClick={() => setView("budgets")}
+                />
+                <ListRow
+                  icon={<Languages className="h-5 w-5" />}
+                  title="Language"
+                  subtitle={language === "en" ? "English" : "Español"}
+                  onClick={() => setView("language")}
+                />
+                <ListRow
+                  icon={<HelpCircle className="h-5 w-5" />}
+                  title="Help & Feedback"
+                  subtitle="Report a bug, request a feature"
+                  onClick={() => setView("help")}
+                />
+                <ListRow
+                  icon={<LogOut className="h-5 w-5" />}
+                  title="Sign Out"
+                  subtitle="You’ll need to sign in again"
+                  onClick={() => setView("signout")}
+                />
+
+                <div className="mt-6 text-xs text-gray-400 text-center">
+                  LockBox v1.0.0
                 </div>
-              </Card>
+              </div>
             )}
 
-            {step === OnbStep.Connect && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <Banknote className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Connect your income</div>
+            {/* Connect Bank */}
+            {view === "bank" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-3">
+                  Link a provider (mock). This simulates Plaid/Payroll.
                 </div>
-                <p className="text-gray-600 mb-4">Mock connection for now — this simulates Plaid/Payroll link.</p>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  {[["Chase"], ["BofA"], ["Wells"], ["Cash App"], ["Citi"], ["ADP"]].map(([name], i) => (
-                    <button key={i} onClick={() => setConnected(true)} className={`p-3 rounded-xl border ${connected ? "border-emerald-500" : ""}`}>
-                      {name}
+                <div className="grid grid-cols-2 gap-2">
+                  {providers.map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPendingProvider(p)}
+                      className={`px-3 py-2 rounded-xl border text-sm ${
+                        pendingProvider === p ? "border-emerald-500 bg-emerald-50" : ""
+                      }`}
+                    >
+                      {p}
                     </button>
                   ))}
                 </div>
-                <div className="mb-4">
-                  <label className="text-sm text-gray-600">Typical net paycheck</label>
-                  <div className="flex items-center rounded-xl border px-3 py-2 mt-1">
-                    <span className="text-gray-500 mr-1">$</span>
-                    <input type="number" value={netPay} onChange={(e) => setNetPay(Number(e.target.value || 0))} className="w-full outline-none py-1.5" />
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button className="py-3 rounded-xl border" onClick={() => setView("root")}>
+                    Cancel
+                  </button>
+                  <button
+                    disabled={!pendingProvider}
+                    className={`py-3 rounded-xl text-white ${
+                      pendingProvider ? "bg-emerald-600" : "bg-gray-300"
+                    }`}
+                    onClick={() => {
+                      setBankConnected(true);
+                      setBankName(pendingProvider);
+                      setPendingProvider("");
+                      setView("root");
+                    }}
+                  >
+                    {bankConnected ? "Switch" : "Connect"}
+                  </button>
+                </div>
+
+                {bankConnected && (
+                  <div className="mt-4 text-xs text-gray-500">
+                    Connected to: <b>{bankName}</b>
+                    <br />
+                    (Demo) Disconnect?
+                    <button
+                      onClick={() => {
+                        setBankConnected(false);
+                        setBankName("");
+                      }}
+                      className="ml-2 text-rose-600 underline"
+                    >
+                      Disconnect
+                    </button>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Partners */}
+            {view === "partners" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-3">
+                  {keyholders.length === 0 && (
+                    <div className="text-sm text-gray-500">No partners yet.</div>
+                  )}
+                  {keyholders.map((k) => (
+                    <div
+                      key={k.id}
+                      className="p-3 rounded-xl border flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{k.name}</div>
+                        <div className="text-xs text-gray-500">{k.contact}</div>
+                      </div>
+                      <button
+                        onClick={() =>
+                          setKeyholders((prev) => prev.filter((x) => x.id !== k.id))
+                        }
+                        className="p-2 rounded-lg hover:bg-rose-50 text-rose-600"
+                        title="Remove"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 p-3 rounded-xl border">
+                  <div className="text-sm font-medium mb-2">Add a partner</div>
+                  <input
+                    value={khName}
+                    onChange={(e) => setKhName(e.target.value)}
+                    placeholder="Name"
+                    className="w-full rounded-xl border px-3 py-2 outline-none mb-2"
+                  />
+                  <input
+                    value={khContact}
+                    onChange={(e) => setKhContact(e.target.value)}
+                    placeholder="Email or phone"
+                    className="w-full rounded-xl border px-3 py-2 outline-none"
+                  />
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                      Cancel
+                    </button>
+                    <button
+                      disabled={!khName.trim() || !khContact.trim()}
+                      onClick={() => {
+                        setKeyholders((prev) => [
+                          ...prev,
+                          { id: `${Date.now()}`, name: khName.trim(), contact: khContact.trim() },
+                        ]);
+                        setKhName("");
+                        setKhContact("");
+                      }}
+                      className={`py-3 rounded-xl text-white ${
+                        khName.trim() && khContact.trim() ? "bg-emerald-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <Plus className="inline h-4 w-4 mr-1" />
+                      Add
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <button
+                    onClick={openPortal}
+                    className="w-full py-3 rounded-xl border"
+                    title="Open demo portal for partners to approve with a code"
+                  >
+                    Open Keyholder Portal (demo)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Budgets */}
+            {view === "budgets" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-3">
+                  Set your monthly split. Total must equal <b>100%</b>.
+                </div>
+
+                <SliderRow
+                  label="Rent safe-deposit box"
+                  value={budgets.rent}
+                  onChange={(v) => setBudgets((b) => ({ ...b, rent: v }))}
+                />
+                <SliderRow
+                  label="Emergency fund"
+                  value={budgets.emergency}
+                  onChange={(v) => setBudgets((b) => ({ ...b, emergency: v }))}
+                />
+                <SliderRow
+                  label="Spending"
+                  value={budgets.spending}
+                  onChange={(v) => setBudgets((b) => ({ ...b, spending: v }))}
+                />
+
+                <div className="mt-2 text-sm">
+                  Total:{" "}
+                  <span
+                    className={
+                      totalBudget === 100 ? "text-emerald-700 font-medium" : "text-amber-700 font-medium"
+                    }
+                  >
+                    {totalBudget}%
+                  </span>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Cancel
+                  </button>
+                  <button
+                    disabled={totalBudget !== 100}
+                    onClick={() => setView("root")}
+                    className={`py-3 rounded-xl text-white ${
+                      totalBudget === 100 ? "bg-emerald-600" : "bg-gray-300"
+                    }`}
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Language */}
+            {view === "language" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lang"
+                      checked={language === "en"}
+                      onChange={() => setLanguage("en")}
+                    />
+                    English
+                  </label>
+                  <label className="flex items-center gap-3 p-3 rounded-xl border cursor-pointer">
+                    <input
+                      type="radio"
+                      name="lang"
+                      checked={language === "es"}
+                      onChange={() => setLanguage("es")}
+                    />
+                    Español
+                  </label>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Back
+                  </button>
+                  <button
+                    onClick={() => setView("root")}
+                    className="py-3 rounded-xl bg-emerald-600 text-white"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Help */}
+            {view === "help" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="space-y-3 text-sm">
+                  <p>Need help or want to send feedback?</p>
+                  <button
+                    onClick={() => alert("Opening email client (demo)…")}
+                    className="w-full px-3 py-3 rounded-xl bg-gray-900 text-white"
+                  >
+                    Email support
+                  </button>
+                  <button
+                    onClick={() => alert("Opening docs (demo)…")}
+                    className="w-full px-3 py-3 rounded-xl border"
+                  >
+                    Read docs
+                  </button>
+                </div>
+                <div className="mt-6 text-xs text-gray-400">
+                  Version 1.0.0 • Thanks for trying LockBox!
+                </div>
+              </div>
+            )}
+
+            {/* Sign out */}
+            {view === "signout" && (
+              <div className="flex-1 overflow-y-auto">
+                <div className="text-sm text-gray-600 mb-4">
+                  Are you sure you want to sign out?
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <button onClick={() => setStep(OnbStep.Welcome)} className="py-3 rounded-xl border">
-                    Back
+                  <button onClick={() => setView("root")} className="py-3 rounded-xl border">
+                    Cancel
                   </button>
-                  <button disabled={!connected} onClick={() => setStep(OnbStep.Split)} className={`py-3 rounded-xl text-white ${connected ? "bg-emerald-600" : "bg-gray-300"}`}>
-                    {connected ? "Continue" : "Choose an account"}
+                  <button
+                    onClick={() => {alert("Signed out.");
+                      resetAndClose();
+			signOut({ callbackUrl: "/signin"})
+                    }}
+                    className="py-3 rounded-xl bg-rose-600 text-white"
+                  >
+                    Sign Out
                   </button>
                 </div>
-              </Card>
+              </div>
             )}
-
-            {step === OnbStep.Split && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <ArrowRightLeft className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Split your paycheck</div>
-                </div>
-                <p className="text-gray-600 mb-4">Decide where every dollar goes. Total should be 100%.</p>
-
-                <SplitRow label="Rent safe-deposit box" value={alloc.rent} onChange={(v) => setAlloc({ ...alloc, rent: v })} preview={Math.round((alloc.rent / 100) * netPay)} />
-                <SplitRow label="Emergency fund" value={alloc.emergency} onChange={(v) => setAlloc({ ...alloc, emergency: v })} preview={Math.round((alloc.emergency / 100) * netPay)} />
-                <SplitRow label="Spending account" value={alloc.spending} onChange={(v) => setAlloc({ ...alloc, spending: v })} preview={Math.round((alloc.spending / 100) * netPay)} />
-
-                <div className="mt-3 text-sm flex items-center justify-between">
-                  <div className="text-gray-600">
-                    Allocated: <span className={`${remaining === 0 ? "text-emerald-700" : "text-amber-600"}`}>{100 - remaining}%</span>
-                  </div>
-                  <div className="text-gray-600">
-                    Remaining: <span className={`${remaining === 0 ? "text-emerald-700" : "text-amber-600"}`}>{remaining}%</span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <button onClick={() => setStep(OnbStep.Connect)} className="py-3 rounded-xl border">
-                    Back
-                  </button>
-                  <button disabled={remaining !== 0} onClick={() => setStep(OnbStep.LockRules)} className={`py-3 rounded-xl text-white ${remaining === 0 ? "bg-emerald-600" : "bg-gray-300"}`}>
-                    Continue
-                  </button>
-                </div>
-              </Card>
-            )}
-
-            {step === OnbStep.LockRules && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <Lock className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Lock rules</div>
-                </div>
-                <p className="text-gray-600 mb-4">Prevent accidental spending by locking the rent vault until its due date.</p>
-                <div className="flex items-center justify-between p-3 rounded-xl border mb-3">
-                  <div>
-                    <div className="font-medium">Lock until rent due date</div>
-                    <div className="text-sm text-gray-500">Unlocks automatically 2 days before</div>
-                  </div>
-                  <label className="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only" checked={lockUntilDue} onChange={(e) => setLockUntilDue(e.target.checked)} />
-                    <div className={`w-11 h-6 rounded-full ${lockUntilDue ? "bg-emerald-600" : "bg-gray-300"} relative transition`}>
-                      <span className={`absolute top-0.5 ${lockUntilDue ? "left-6" : "left-0.5"} h-5 w-5 bg-white rounded-full transition`} />
-                    </div>
-                  </label>
-                </div>
-                <div className="p-3 rounded-xl border text-sm text-gray-600 flex items-center gap-2">
-                  <Clock className="h-4 w-4" /> If you need it early, request an early unlock. The Banker will review your reason.
-                </div>
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <button onClick={() => setStep(OnbStep.Split)} className="py-3 rounded-xl border">
-                    Back
-                  </button>
-                  <button onClick={() => setStep(OnbStep.Keyholder)} className="py-3 rounded-xl bg-emerald-600 text-white">
-                    Continue
-                  </button>
-                </div>
-              </Card>
-            )}
-
-            {step === OnbStep.Keyholder && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <Users className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Add a Keyholder (optional)</div>
-                </div>
-                <p className="text-gray-600 mb-4">Pick someone you trust. They’ll approve big moves and keep you on track.</p>
-                <div className="flex items-center gap-2 mb-3">
-                  <label className="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only" checked={keyholder.enabled} onChange={(e) => setKeyholder({ ...keyholder, enabled: e.target.checked })} />
-                    <div className={`w-11 h-6 rounded-full ${keyholder.enabled ? "bg-emerald-600" : "bg-gray-300"} relative transition`}>
-                      <span className={`absolute top-0.5 ${keyholder.enabled ? "left-6" : "left-0.5"} h-5 w-5 bg-white rounded-full transition`} />
-                    </div>
-                  </label>
-                  <span className="text-sm">Enable Keyholder</span>
-                </div>
-                <div className={`space-y-3 ${keyholder.enabled ? "opacity-100" : "opacity-50 pointer-events-none"}`}>
-                  <div>
-                    <label className="text-sm text-gray-600">Contact (email or phone)</label>
-                    <input value={keyholder.contact} onChange={(e) => setKeyholder({ ...keyholder, contact: e.target.value })} placeholder="e.g. ashley@example.com" className="mt-1 w-full rounded-xl border px-3 py-2 outline-none" />
-                  </div>
-                  <div>
-                    <label className="text-sm text-gray-600">Approval rule</label>
-                    <select value={keyholder.rule} onChange={(e) => setKeyholder({ ...keyholder, rule: e.target.value })} className="mt-1 w-full rounded-xl border px-3 py-2 outline-none">
-                      <option value="approve_over_100">Approve transfers over $100</option>
-                      <option value="approve_any_unlock">Approve any early unlock</option>
-                      <option value="view_only">View-only accountability</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <button onClick={() => setStep(OnbStep.LockRules)} className="py-3 rounded-xl border">
-                    Back
-                  </button>
-                  <button onClick={() => setStep(OnbStep.Review)} className="py-3 rounded-xl bg-emerald-600 text-white">
-                    Continue
-                  </button>
-                </div>
-              </Card>
-            )}
-
-            {step === OnbStep.Review && (
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-2">
-                  <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-                  <div className="text-lg font-semibold">Review & finish</div>
-                </div>
-                <div className="space-y-3 text-sm">
-                  <div className="flex items-center justify-between p-3 rounded-xl border">
-                    <span>Account linked</span>
-                    {connected ? (
-                      <span className="text-emerald-700 flex items-center gap-1">
-                        <Check className="h-4 w-4" /> Connected
-                      </span>
-                    ) : (
-                      <span className="text-amber-700 flex items-center gap-1">
-                        <CircleSlash className="h-4 w-4" /> Not connected
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-3 rounded-xl border">
-                    <div className="font-medium mb-1">Split</div>
-                    <ul className="space-y-1 text-gray-700">
-                      <li>
-                        Rent safe-deposit box — {alloc.rent}% ({currency(Math.round((netPay * alloc.rent) / 100))})
-                      </li>
-                      <li>
-                        Emergency fund — {alloc.emergency}% ({currency(Math.round((netPay * alloc.emergency) / 100))})
-                      </li>
-                      <li>
-                        Spending — {alloc.spending}% ({currency(Math.round((netPay * alloc.spending) / 100))})
-                      </li>
-                    </ul>
-                  </div>
-                  <div className="p-3 rounded-xl border flex items-center justify-between">
-                    <span>Lock until rent due</span>
-                    <span className="text-gray-700">{lockUntilDue ? "On" : "Off"}</span>
-                  </div>
-                  <div className="p-3 rounded-xl border flex items-center justify-between">
-                    <span>Keyholder</span>
-                    <span className="text-gray-700">{keyholder.enabled ? keyholder.contact || "Enabled" : "Disabled"}</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <button onClick={() => setStep(OnbStep.Keyholder)} className="py-3 rounded-xl border">
-                    Back
-                  </button>
-                  <button onClick={onFinish} className="py-3 rounded-xl bg-emerald-600 text-white">
-                    Finish setup
-                  </button>
-                </div>
-              </Card>
-            )}
-            <div className="h-10" />
-          </div>
+          </motion.div>
         </motion.div>
       )}
     </AnimatePresence>
   );
 }
 
-function SplitRow({ label, value, onChange, preview }: { label: string; value: number; onChange: (v: number) => void; preview: number }) {
+/* ── Utility rows for drawer ─────────────────────────────────────── */
+
+function ListRow({
+  icon,
+  title,
+  subtitle,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  onClick: () => void;
+}) {
+  return (
+    <motion.button
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className="w-full text-left px-3 py-3 rounded-xl hover:bg-gray-50 flex justify-between items-center text-gray-800"
+    >
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 rounded-xl bg-gray-100 grid place-items-center">{icon}</div>
+        <div>
+          <div className="font-medium">{title}</div>
+          {subtitle && <div className="text-xs text-gray-500">{subtitle}</div>}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-gray-400" />
+    </motion.button>
+  );
+}
+
+function SliderRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <div className="mb-4">
       <div className="flex items-center justify-between mb-1">
         <div className="text-sm text-gray-600">{label}</div>
-        <div className="text-sm font-medium">
-          {value}% <span className="text-gray-500">({currency(preview)})</span>
-        </div>
+        <div className="text-sm font-medium">{value}%</div>
       </div>
-      <input type="range" min={0} max={100} step={1} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full"
+      />
     </div>
   );
 }

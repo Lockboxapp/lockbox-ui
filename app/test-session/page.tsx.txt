@@ -1,0 +1,38 @@
+"use client";
+import { useSession, signIn, signOut } from "next-auth/react";
+
+export default function TestSessionPage() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") {
+    return <p className="p-6 text-gray-500">Loading session...</p>;
+  }
+
+  if (!session) {
+    return (
+      <div className="p-6 text-center">
+        <p className="mb-3 text-gray-700">No active session.</p>
+        <button
+          onClick={() => signIn()}
+          className="px-4 py-2 rounded-lg bg-emerald-600 text-white"
+        >
+          Sign In
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 text-center">
+      <p className="text-gray-700 mb-2">
+        Signed in as <b>{session.user?.email}</b>
+      </p>
+      <button
+        onClick={() => signOut()}
+        className="px-4 py-2 rounded-lg bg-rose-600 text-white"
+      >
+        Sign Out
+      </button>
+    </div>
+  );
+}

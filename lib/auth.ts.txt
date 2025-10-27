@@ -1,0 +1,54 @@
+// lib/auth.ts
+import { PrismaAdapter } from "@auth/prisma-adapter";
+import NextAuth, { NextAuthOptions } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
+import { prisma } from "./prisma";
+import { compare } from "bcryptjs";
+
+export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma) as any,
+  session: { strategy: "jwt" },
+  providers: [
+    Credentials({
+      name: "Email & Password",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email },
+        });
+        if (!user || !user.passwordHash) return null;
+
+        const valid = await compare(credentials.password, user.passwordHash);
+        if (!valid) return null;
+
+        return {
+          id: user.id,
+          name: user.name ?? null,
+          email: user.email ?? null,
+        };
+      },
+    }),
+  ],
+  pages: {
+    signIn: "/login",
+  },
+  // Add any callbacks you need (e.g., include user id in JWT)
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user?.id) token.uid = user.id;
+      return token;
+    },
+    async session({ session, token }) {
+      if (token?.uid && session.user) {
+        (session.user as any).id = token.uid;
+      }
+      return session;
+    },
+  },
+  secret: process.env.NEXTAUTH_SECRET,
+};

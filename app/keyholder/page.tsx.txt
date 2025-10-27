@@ -1,92 +1,68 @@
+// app/keyholder/page.tsx
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
-import { Shield, Check, X, Download } from "lucide-react";
+import { useMemo } from "react";
 
-export default function KeyholderPage() {
-  const params = useSearchParams();
-  const id = params.get("id");
-  const [action, setAction] = useState<null | "yes" | "no">(null);
-  const [request, setRequest] = useState<any>(null);
+export default function KeyholderPage({
+  searchParams,
+}: {
+  searchParams: { id?: string; amount?: string; vaultId?: string };
+}) {
+  const id = searchParams?.id ?? "";
+  const amount = searchParams?.amount ?? "";
+  const vaultId = searchParams?.vaultId ?? "";
 
-  useEffect(() => {
-    // Simulate pulling request info from localStorage (demo)
-    if (id) {
-      const raw = localStorage.getItem("lockboxDemoV1");
-      if (raw) {
-        const data = JSON.parse(raw);
-        const found = (data.requests || []).find((r: any) => r.id === id);
-        setRequest(found);
-      }
-    }
+  const title = useMemo(() => {
+    if (!id) return "Unlock request";
+    return `Request ${id.slice(-6)}`;
   }, [id]);
 
-  if (!id) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-500">
-        Invalid link
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gray-50 text-center">
-      <div className="max-w-sm bg-white rounded-3xl p-6 shadow text-gray-800">
-        <div className="h-12 w-12 mx-auto mb-3 rounded-full bg-emerald-100 flex items-center justify-center">
-          <Shield className="h-6 w-6 text-emerald-600" />
+    <main className="min-h-screen max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-semibold mb-2">{title}</h1>
+      <p className="text-gray-600 mb-6">
+        This is a public preview page for keyholders. The full approval flow
+        isn’t wired to your app state yet, but the link now resolves so you
+        won’t get a 404.
+      </p>
+
+      <div className="rounded-xl border p-4 space-y-2">
+        <div className="text-sm">
+          <span className="text-gray-500">Vault:</span>{" "}
+          <span className="font-medium">{vaultId || "(unknown)"}</span>
         </div>
-
-        <h2 className="text-xl font-semibold mb-2">Unlock Request</h2>
-        {request ? (
-          <>
-            <p className="text-sm text-gray-600 mb-5">
-              Darian requested <b>${request.amount}</b> from{" "}
-              <span className="capitalize">{request.vaultId}</span>.
-              <br />
-              Reason: “{request.reason || "No reason provided"}”
-            </p>
-
-            {action ? (
-              <div
-                className={`text-lg font-semibold ${
-                  action === "yes" ? "text-emerald-600" : "text-rose-600"
-                }`}
-              >
-                {action === "yes" ? "Approved ✅" : "Declined ❌"}
-              </div>
-            ) : (
-              <div className="flex gap-3 justify-center">
-                <button
-                  onClick={() => setAction("yes")}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 text-white"
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => setAction("no")}
-                  className="px-5 py-2 rounded-xl bg-rose-600 text-white"
-                >
-                  Decline
-                </button>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-gray-600 mb-5">Loading request...</p>
-        )}
-
-        <p className="mt-8 text-xs text-gray-500 flex flex-col items-center gap-1">
-          <Download className="h-4 w-4" />
-          Get the full experience:{" "}
-          <a
-            href="https://lockbox.app/download"
-            className="text-emerald-700 underline"
-          >
-            Download LockBox
-          </a>
-        </p>
+        <div className="text-sm">
+          <span className="text-gray-500">Amount:</span>{" "}
+          <span className="font-medium">{amount ? `$${amount}` : "(unknown)"}</span>
+        </div>
+        <div className="text-sm">
+          <span className="text-gray-500">Request ID:</span>{" "}
+          <span className="font-mono">{id || "(missing)"}</span>
+        </div>
       </div>
-    </div>
+
+      <div className="grid grid-cols-2 gap-3 mt-6">
+        <button
+          className="py-3 rounded-xl bg-emerald-600 text-white"
+          onClick={() => alert("Approve (demo-only): Wire to API later.")}
+        >
+          Approve
+        </button>
+        <button
+          className="py-3 rounded-xl bg-rose-600 text-white"
+          onClick={() => alert("Reject (demo-only): Wire to API later.")}
+        >
+          Reject
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-500 mt-6">
+        Tip: The app currently generates links like
+        <br />
+        <code className="font-mono">
+          /keyholder?id=123&amount=100&vaultId=rent
+        </code>
+      </p>
+    </main>
   );
 }
