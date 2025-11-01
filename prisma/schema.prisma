@@ -1,24 +1,49 @@
-// prisma/schema.prisma
-datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
-}
+// ---------- Prisma schema for LockBox ----------
 
 generator client {
   provider = "prisma-client-js"
 }
 
+datasource db {
+  provider = "sqlite"       // change to "sqlite" or "mysql" if you actually use those
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Enums ----------------
+enum TransactionType {
+  DEPOSIT
+  LOCK
+  WITHDRAW
+  TRANSFER_IN
+  TRANSFER_OUT
+  INCOME
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+}
+
+// --------------- NextAuth core models ---------------
 model User {
-  id           String   @id @default(cuid())
-  name         String?
-  email        String?  @unique
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
   emailVerified DateTime?
-  image        String?
-  // Local auth
+  image         String?
   passwordHash String?
 
-  accounts Account[]
-  sessions Session[]
+
+  accounts      Account[]
+  sessions      Session[]
+
+  // App relations
+  transactions  Transaction[]
+  vaults        Vault[]
+  categories    Category[]
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Account {
@@ -35,7 +60,7 @@ model Account {
   id_token          String?
   session_state     String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User   @relation(fields: [userId], references: [id])
 
   @@unique([provider, providerAccountId])
 }
@@ -46,7 +71,7 @@ model Session {
   userId       String
   expires      DateTime
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
 }
 
 model VerificationToken {
@@ -55,4 +80,53 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// --------------- App models ----------------
+model Vault {
+  id          String        @id @default(cuid())
+  name        String
+  balance     Int           @default(0) // cents
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Category {
+  id          String        @id @default(cuid())
+  name        String
+  type        CategoryType
+  userId      String
+  user        User          @relation(fields: [userId], references: [id])
+  transactions Transaction[]
+
+  @@index([userId, type])
+}
+
+model Transaction {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id])
+
+  vaultId     String?
+  vault       Vault?          @relation(fields: [vaultId], references: [id])
+
+  categoryId  String?
+  category    Category?       @relation(fields: [categoryId], references: [id])
+
+  type        TransactionType
+  amount      Int             // cents
+  description String?
+  postedAt    DateTime        @default(now())
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt @default(now())
+
+
+  @@index([userId, postedAt])
 }

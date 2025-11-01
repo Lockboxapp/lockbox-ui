@@ -1,15 +1,13 @@
-import NextAuth, { type NextAuthOptions } from "next-auth";
+// app/api/auth/[...nextauth]/route.ts
+import NextAuth, { NextAuthOptions } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import { PrismaAdapter } from "@auth/prisma-adapter";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET,
-  adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt" }, // important for modern App Router
   providers: [
     Credentials({
       name: "Credentials",
@@ -19,22 +17,30 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(creds) {
         if (!creds?.email || !creds?.password) return null;
-        const user = await prisma.user.findUnique({
-          where: { email: creds.email },
-        });
+
+        const user = await prisma.user.findUnique({ where: { email: creds.email } });
         if (!user || !user.passwordHash) return null;
-        const ok = await bcrypt.compare(creds.password, user.passwordHash);
-        return ok
-          ? { id: user.id, name: user.name ?? null, email: user.email }
-          : null;
+
+        const valid = await bcrypt.compare(creds.password, user.passwordHash);
+        if (!valid) return null;
+
+        return { id: user.id, name: user.name, email: user.email };
       },
     }),
   ],
-  pages: {
-    signIn: "/signin",
 
-},
+  // 👇👇 This is the session callback you need 👇👇
+  callbacks: {
+    async session({ session, token }) {
+      // token.sub = user.id when using 'jwt' sessions
+      if (session.user) {
+        session.user.id = token.sub ?? null;
+      }
+      return session;
+    },
+  },
 };
 
+// Required by Next.js App Router
 const handler = NextAuth(authOptions);
 export { handler as GET, handler as POST };
