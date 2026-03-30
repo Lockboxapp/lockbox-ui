@@ -1,37 +1,27 @@
+// app/api/summary/route.ts
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
-import { PrismaClient } from "@prisma/client";
+import type { NextRequest } from "next/server";
+import { getToken } from "next-auth/jwt";
+import { prisma } from "@/lib/db";
 
-const prisma = new PrismaClient();
+export const runtime = "nodejs";
 
-export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } });
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(req: NextRequest) {
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  const userId = token?.sub as string | undefined;
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const vaults = await prisma.vault.findMany({ where: { userId: user.id } });
-  const totals = vaults.reduce(
-    (acc, v) => {
-      acc.saved += v.saved;
-      acc.locked += v.locked;
-      return acc;
-    },
-    { saved: 0, locked: 0 }
-  );
-
-  const transactions = await prisma.transaction.findMany({
-    where: { userId: user.id },
-    orderBy: { postedAt: "desc" },
-    take: 10,
-    include: { vault: true, category: true },
-  });
+  // Minimal summary (compiles even if you add more later)
+  const [vaultCount, txCount] = await Promise.all([
+    prisma.vault.count({ where: { userId } }),
+    prisma.transaction.count({ where: { userId } }),
+  ]);
 
   return NextResponse.json({
-    totalSaved: totals.saved,
-    totalLocked: totals.locked,
-    totalAvailable: totals.saved - totals.locked,
-    recent: transactions,
+    ok: true,
+    vaults: vaultCount,
+    transactions: txCount,
   });
 }

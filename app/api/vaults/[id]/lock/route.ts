@@ -1,36 +1,46 @@
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { TX, TransactionType } from "lib/types";
+import { prisma } from "@/lib/prisma";
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  const { amount, requireKeyholder } = await req.json();
-  if (!amount || amount <= 0) return NextResponse.json({ error: "Bad amount" }, { status: 400 });
+  const user = await prisma.user.findUnique({
+    where: { email: session.user.email },
+  });
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const vault = await prisma.vault.findFirst({ where: { id: params.id, userId: session.user.id }});
+  const vault = await prisma.vault.findFirst({
+    where: { id: params.id, userId: user.id },
+  });
   if (!vault) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const unlocked = Math.max(0, vault.saved - vault.locked);
-  const amt = Math.min(unlocked, amount);
+  const { amount } = await req.json();
+  const amt = Math.max(0, Number(amount) || 0);
+  if (!amt) return NextResponse.json({ error: "Bad amount" }, { status: 400 });
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const v = await tx.vault.update({
-      where: { id: params.id },
-      data: {
-        locked: { increment: amt },
-        isLocked: true,
-        ...(typeof requireKeyholder === "boolean" ? { requireKeyholder } : {}),
-      },
-    });
-    await tx.transaction.create({
-      data: {
-        userId: session.user.id,
-        vaultId: v.id,
-        type: "LOCK",
-        amount: amt,
-        description: "Locked funds",
-      },
-    });
-    return v;
+  // Record a logical lock event only
+  await prisma.transaction.create({
+    data: {
+      userId: user.id, // use user.id so type is strictly string
+      vaultId: vault.id,
+      type: TX.LOCK as TransactionType,
+      amount: Math.round(amt), // adjust if your UI passes dollars
+      description: "Locked funds",
+      postedAt: new Date(),
+    },
   });
 
+  // Return current vault (unchanged balance)
+  const updated = await prisma.vault.findUnique({ where: { id: vault.id } });
   return NextResponse.json(updated);
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -9,7 +9,7 @@ type Params = { id: string };
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<Params> }   // 👈 params is a Promise
+  ctx: { params: Promise<Params> } // 👈 params is a Promise
 ) {
   try {
     const { id: vaultId } = await ctx.params; // 👈 await it
@@ -36,7 +36,7 @@ export async function POST(
 
     const updated = await prisma.vault.update({
       where: { id: vaultId },
-      data: { saved: { increment: amt } }, // atomic increment
+      data: { balance: { increment: amt } }, // atomic increment
     });
 
     return NextResponse.json(updated, { status: 200 });

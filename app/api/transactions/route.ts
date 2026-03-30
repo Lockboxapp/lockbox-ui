@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { z } from "zod";
 
@@ -23,21 +23,35 @@ const getQuerySchema = z.object({
   cursor: z.string().nullish(), // transaction.id
   // Matches your TransactionType enum
   type: z
-    .enum(["DEPOSIT", "LOCK", "WITHDRAW", "TRANSFER_IN", "TRANSFER_OUT", "INCOME"])
+    .enum([
+      "DEPOSIT",
+      "LOCK",
+      "WITHDRAW",
+      "TRANSFER_IN",
+      "TRANSFER_OUT",
+      "INCOME",
+    ])
     .optional(),
   vaultId: z.string().optional(),
   categoryId: z.string().optional(),
   // Optional filter by CategoryType (INCOME | EXPENSE)
   categoryType: z.enum(["INCOME", "EXPENSE"]).optional(),
   from: z.string().optional(), // ISO date
-  to: z.string().optional(),   // ISO date
-  q: z.string().optional(),    // text search in description
+  to: z.string().optional(), // ISO date
+  q: z.string().optional(), // text search in description
 });
 
 const postBodySchema = z.object({
   vaultId: z.string().nullable().optional(),
   categoryId: z.string().nullable().optional(),
-  type: z.enum(["DEPOSIT", "LOCK", "WITHDRAW", "TRANSFER_IN", "TRANSFER_OUT", "INCOME"]),
+  type: z.enum([
+    "DEPOSIT",
+    "LOCK",
+    "WITHDRAW",
+    "TRANSFER_IN",
+    "TRANSFER_OUT",
+    "INCOME",
+  ]),
   amount: z.number().int().positive(), // cents
   description: z.string().max(280).nullable().optional(),
   postedAt: z.string().datetime().optional(), // ISO
@@ -63,7 +77,17 @@ export async function GET(req: Request) {
     );
   }
 
-  const { limit, cursor, type, vaultId, categoryId, categoryType, from, to, q } = parsed.data;
+  const {
+    limit,
+    cursor,
+    type,
+    vaultId,
+    categoryId,
+    categoryType,
+    from,
+    to,
+    q,
+  } = parsed.data;
 
   const where: Prisma.TransactionWhereInput = {
     userId: session.user.id,
@@ -88,7 +112,7 @@ export async function GET(req: Request) {
       : {}),
     ...(q
       ? {
-          description: { contains: q, mode: "insensitive" },
+          description: q ? { contains: q } : undefined,
         }
       : {}),
   };

@@ -1,49 +1,50 @@
-// ---------- Prisma schema for LockBox ----------
+// ============================================================
+// LockBox — Prisma Schema
+// ============================================================
+// Sections:
+//   1. Generator & Datasource
+//   2. NextAuth Core Models (User, Account, Session)
+//   3. User Preferences
+//   4. Financial Models (Vault, Transaction, Category)
+//   5. LockBox Core Models (Box, Keyholder, UnlockRequest)
+// ============================================================
+
+// ------------------------------------------------------------
+// 1. GENERATOR & DATASOURCE
+// ------------------------------------------------------------
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"       // change to "sqlite" or "mysql" if you actually use those
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-// ---------------- Enums ----------------
-enum TransactionType {
-  DEPOSIT
-  LOCK
-  WITHDRAW
-  TRANSFER_IN
-  TRANSFER_OUT
-  INCOME
-}
+// ------------------------------------------------------------
+// 2. NEXTAUTH CORE MODELS
+// ------------------------------------------------------------
 
-enum CategoryType {
-  INCOME
-  EXPENSE
-}
-
-// --------------- NextAuth core models ---------------
 model User {
   id            String    @id @default(cuid())
   name          String?
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  passwordHash String?
+  passwordHash  String?
 
+  // Relations
+  accounts     Account[]
+  sessions     Session[]
+  preferences  Preferences?
+  vaults       Vault[]
+  boxes        Box[]
+  transactions Transaction[]
+  categories   Category[]
 
-  accounts      Account[]
-  sessions      Session[]
-
-  // App relations
-  transactions  Transaction[]
-  vaults        Vault[]
-  categories    Category[]
-
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Account {
@@ -60,7 +61,7 @@ model Account {
   id_token          String?
   session_state     String?
 
-  user  User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
   @@unique([provider, providerAccountId])
 }
@@ -82,51 +83,165 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-// --------------- App models ----------------
+// ------------------------------------------------------------
+// 3. USER PREFERENCES
+// ------------------------------------------------------------
+
+model Preferences {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  currency      String  @default("USD")
+  language      String  @default("en")
+  theme         String  @default("light")
+  notifications Boolean @default(true)
+  dailySummary  Boolean @default(true)
+  pushApprovals Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------------------------------------------------
+// 4. FINANCIAL MODELS
+// ------------------------------------------------------------
+
+// Top-level account container for a user
 model Vault {
-  id          String        @id @default(cuid())
-  name        String
-  balance     Int           @default(0) // cents
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
+  id      String @id @default(cuid())
+  name    String
+  balance Int    @default(0) // stored in cents
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   transactions Transaction[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }
 
+// Ledger of all money movement across vaults and boxes
+model Transaction {
+  id          String   @id @default(cuid())
+  type        String   // DEPOSIT | WITHDRAWAL | TRANSFER | LOCK | UNLOCK
+  amount      Int      // stored in cents
+  description String?
+  postedAt    DateTime @default(now())
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  vaultId    String?
+  vault      Vault?    @relation(fields: [vaultId], references: [id])
+  boxId      String?
+  box        Box?      @relation(fields: [boxId], references: [id])
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([userId, postedAt])
+}
+
 model Category {
-  id          String        @id @default(cuid())
-  name        String
-  type        CategoryType
-  userId      String
-  user        User          @relation(fields: [userId], references: [id])
+  id   String @id @default(cuid())
+  name String
+  type String // INCOME | EXPENSE
+
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
   transactions Transaction[]
 
   @@index([userId, type])
 }
 
-model Transaction {
-  id          String          @id @default(cuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id])
+// ------------------------------------------------------------
+// 5. LOCKBOX CORE MODELS
+// ------------------------------------------------------------
 
-  vaultId     String?
-  vault       Vault?          @relation(fields: [vaultId], references: [id])
+// Box — a purpose-specific locked sub-account
+// Status flow: CREATED → FUNDING → LOCKED → UNLOCK_PENDING → UNLOCKED → CLOSED
+model Box {
+  id           String    @id @default(cuid())
+  name         String
+  description  String?
+  status       String    @default("CREATED") // see status flow above
+  balance      Int       @default(0)          // stored in cents
+  targetAmount Int?                            // stored in cents, optional goal
+  lockUntil    DateTime?                       // null until box is locked
 
-  categoryId  String?
-  category    Category?       @relation(fields: [categoryId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
-  type        TransactionType
-  amount      Int             // cents
-  description String?
-  postedAt    DateTime        @default(now())
+  // One optional keyholder per box — the core product differentiator
+  keyholder Keyholder?
 
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt @default(now())
+  // All unlock attempts against this box
+  unlockRequests UnlockRequest[]
 
+  // Transactions scoped to this box
+  transactions Transaction[]
 
-  @@index([userId, postedAt])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// Keyholder — trusted person who must approve early unlock requests
+// SECURITY: inviteToken is only for the initial invite email.
+// Never expose approvalToken (on UnlockRequest) to the box owner.
+model Keyholder {
+  id    String  @id @default(cuid())
+  boxId String  @unique
+  email String
+  name  String?
+
+  // True once the keyholder clicks accept in their invite email
+  accepted Boolean @default(false)
+
+  // Token sent in the keyholder invite email only
+  inviteToken String @unique @default(cuid())
+
+  box Box @relation(fields: [boxId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([inviteToken])
+}
+
+// UnlockRequest — created when a user attempts to unlock before lockUntil
+// SECURITY: approvalToken is generated server-side and sent ONLY to the
+// keyholder. It must never be returned in any API response to the box owner.
+model UnlockRequest {
+  id         String    @id @default(cuid())
+  boxId      String
+  reason     String    // user-provided reason for early unlock
+  reflection String?   // answer to reflection prompt shown before submitting
+  status     String    @default("PENDING") // PENDING | APPROVED | DENIED
+
+  // Sent only to the keyholder — never exposed to the box owner under any circumstance
+  approvalToken String @unique @default(cuid())
+
+  // User cannot re-request until this timestamp passes
+  cooldownUntil DateTime?
+
+  requestedAt DateTime  @default(now())
+  resolvedAt  DateTime? // set when keyholder approves or denies
+
+  box Box @relation(fields: [boxId], references: [id])
+
+  updatedAt DateTime @updatedAt
+
+  @@index([boxId])
+  @@index([approvalToken])
+  @@index([status])
 }

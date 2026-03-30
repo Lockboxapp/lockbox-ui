@@ -15,7 +15,10 @@ export async function POST(req: Request) {
     const { name, email, password } = await req.json();
 
     if (!email || !password) {
-      return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Email and password are required" },
+        { status: 400 }
+      );
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -29,27 +32,19 @@ export async function POST(req: Request) {
     // 2) Seed two default vaults (match schema fields exactly)
     await prisma.$transaction([
       prisma.vault.create({
+        // First starter vault
         data: {
           userId: user.id,
           name: "Rent safe-deposit box",
-          target: 1500,
-          saved: 0,
-          locked: 0,
-          dueDate: addDays(8),          // ✅ Date, not dueDays
-          isLocked: false,
-          requireKeyholder: false,
+          balance: 1200,
         },
       }),
       prisma.vault.create({
+        // Second starter vault
         data: {
           userId: user.id,
           name: "Emergency fund",
-          target: 2000,
-          saved: 0,
-          locked: 0,
-          dueDate: null,               // ✅ null is fine
-          isLocked: false,
-          requireKeyholder: false,
+          balance: 850,
         },
       }),
     ]);
@@ -58,7 +53,10 @@ export async function POST(req: Request) {
   } catch (err: any) {
     // Handle unique email constraint
     if (err?.code === "P2002") {
-      return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      return NextResponse.json(
+        { error: "Email already in use" },
+        { status: 409 }
+      );
     }
     console.error("Signup error:", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

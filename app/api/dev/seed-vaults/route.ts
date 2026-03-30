@@ -1,14 +1,15 @@
 // app/api/dev/seed-vaults/route.ts
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 export async function POST() {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const userId = session.user.id;
 
@@ -17,8 +18,8 @@ export async function POST() {
   if (count === 0) {
     await prisma.vault.createMany({
       data: [
-        { userId, name: "Rent safe-deposit box", target: 1500, saved: 1200, locked: 900, isLocked: true, requireKeyholder: true },
-        { userId, name: "Emergency fund", target: 2000, saved: 850, locked: 0, isLocked: false, requireKeyholder: false },
+        { userId, name: "Rent safe-deposit box", balance: 1200 },
+        { userId, name: "Emergency fund", balance: 850 },
       ],
     });
   }

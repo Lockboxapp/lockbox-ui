@@ -1,3 +1,9 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { TX, type TransactionType } from "@/lib/types";
+import { prisma } from "@/lib/prisma"; // ensure this exists; otherwise instantiate PrismaClient here
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -10,143 +16,173 @@ export async function PATCH(
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
   });
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!user)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const vault = await prisma.vault.findFirst({
     where: { id: params.id, userId: user.id },
   });
-  if (!vault) return NextResponse.json({ error: "Vault not found" }, { status: 404 });
+  if (!vault)
+    return NextResponse.json({ error: "Vault not found" }, { status: 404 });
 
   const body = await req.json();
-  const { action, amount, toVaultId } = body;
+  const { action, amount, toVaultId, name } = body as {
+    action?: "addFunds" | "withdraw" | "lockFunds" | "unlockFunds" | "transfer";
+    amount?: number;
+    toVaultId?: string;
+    name?: string;
+  };
+
   const amt = Math.max(0, Number(amount) || 0);
 
-  const toCents = (n: number) => Math.round(n); // use this if amounts are already in cents
-  // const toCents = (n: number) => Math.round(n * 100); // use this if you’re passing dollars
+  // If your Transaction.amount is already in cents, keep Math.round(n).
+  // If you pass dollars from UI, switch to Math.round(n * 100).
+  const toCents = (n: number) => Math.round(n);
 
-  let updated;
+  let updated = vault;
 
   switch (action) {
     case "addFunds": {
+      if (!amt)
+        return NextResponse.json({ error: "Bad amount" }, { status: 400 });
       updated = await prisma.vault.update({
         where: { id: vault.id },
-        data: { saved: { increment: amt } },
+        data: { balance: { increment: amt } },
       });
       await prisma.transaction.create({
         data: {
           userId: user.id,
           vaultId: vault.id,
-          type: TransactionType.INCOME,
+          type: TX.DEPOSIT as TransactionType,
           amount: toCents(amt),
           description: "Added funds",
+          postedAt: new Date(),
+        },
+      });
+      break;
+    }
+
+    case "withdraw": {
+      if (!amt)
+        return NextResponse.json({ error: "Bad amount" }, { status: 400 });
+      updated = await prisma.vault.update({
+        where: { id: vault.id },
+        data: { balance: { decrement: amt } },
+      });
+      await prisma.transaction.create({
+        data: {
+          userId: user.id,
+          vaultId: vault.id,
+          type: TX.WITHDRAW as TransactionType,
+          amount: toCents(amt),
+          description: "Withdrawal",
+          postedAt: new Date(),
         },
       });
       break;
     }
 
     case "lockFunds": {
-      const lockable = Math.max(0, vault.saved - vault.locked);
-      const lockAmt = Math.min(amt, lockable);
-      updated = await prisma.vault.update({
-        where: { id: vault.id },
-        data: {
-          locked: { increment: lockAmt },
-          isLocked: true,
-        },
-      });
+      if (!amt)
+        return NextResponse.json({ error: "Bad amount" }, { status: 400 });
+      // Logical lock event only — no balance column in schema to change
       await prisma.transaction.create({
         data: {
           userId: user.id,
           vaultId: vault.id,
-          type: TransactionType.TRANSFER,
-          amount: toCents(lockAmt),
+          type: TX.LOCK as TransactionType,
+          amount: toCents(amt), // positive = lock
           description: "Locked funds",
+          postedAt: new Date(),
         },
       });
+      // Return unchanged vault
+      updated = (await prisma.vault.findUnique({
+        where: { id: vault.id },
+      })) as typeof vault;
       break;
     }
 
     case "unlockFunds": {
-      const unlockAmt = Math.min(amt, vault.locked);
-      updated = await prisma.vault.update({
-        where: { id: vault.id },
-        data: {
-          locked: { decrement: unlockAmt },
-          isLocked: unlockAmt < vault.locked ? true : false,
-        },
-      });
+      if (!amt)
+        return NextResponse.json({ error: "Bad amount" }, { status: 400 });
       await prisma.transaction.create({
         data: {
           userId: user.id,
           vaultId: vault.id,
-          type: TransactionType.TRANSFER,
-          amount: toCents(unlockAmt),
+          type: TX.LOCK as TransactionType,
+          amount: toCents(-amt), // negative = unlock
           description: "Unlocked funds",
+          postedAt: new Date(),
         },
       });
+      updated = (await prisma.vault.findUnique({
+        where: { id: vault.id },
+      })) as typeof vault;
       break;
     }
 
     case "transfer": {
+      if (!amt || !toVaultId) {
+        return NextResponse.json(
+          { error: "Bad transfer params" },
+          { status: 400 }
+        );
+      }
+
       const toVault = await prisma.vault.findFirst({
         where: { id: toVaultId, userId: user.id },
       });
       if (!toVault)
-        return NextResponse.json({ error: "Target vault not found" }, { status: 404 });
-
-      const transferable = Math.max(0, vault.saved - vault.locked);
-      const transferAmt = Math.min(amt, transferable);
+        return NextResponse.json(
+          { error: "Target vault not found" },
+          { status: 404 }
+        );
 
       updated = await prisma.$transaction(async (tx) => {
-        const src = await tx.vault.update({
+        const fromAfter = await tx.vault.update({
           where: { id: vault.id },
-          data: { saved: { decrement: transferAmt } },
+          data: { balance: { decrement: amt } },
         });
-        const dest = await tx.vault.update({
+        await tx.vault.update({
           where: { id: toVault.id },
-          data: { saved: { increment: transferAmt } },
+          data: { balance: { increment: amt } },
         });
+
         await tx.transaction.createMany({
           data: [
             {
               userId: user.id,
               vaultId: vault.id,
-              type: TransactionType.TRANSFER,
-              amount: toCents(transferAmt),
-              description: `Transfer OUT → ${toVault.name}`,
+              type: TX.TRANSFER_OUT as TransactionType,
+              amount: toCents(amt),
+              description: `Transfer to ${toVault.name}`,
+              postedAt: new Date(),
             },
             {
               userId: user.id,
               vaultId: toVault.id,
-              type: TransactionType.TRANSFER,
-              amount: toCents(transferAmt),
-              description: `Transfer IN ← ${vault.name}`,
+              type: TX.TRANSFER_IN as TransactionType,
+              amount: toCents(amt),
+              description: `Transfer from ${vault.name}`,
+              postedAt: new Date(),
             },
           ],
         });
-        return src;
+
+        return fromAfter;
       });
       break;
     }
 
     default: {
-      // Generic update (for renaming or toggles)
-      const allowed: any = {};
-      for (const k of [
-        "name",
-        "target",
-        "locked",
-        "saved",
-        "dueDate",
-        "isLocked",
-        "requireKeyholder",
-      ]) {
-        if (k in body) allowed[k] = body[k];
+      // Only allow renaming in the default branch with current schema
+      if (typeof name === "string" && name.trim().length > 0) {
+        updated = await prisma.vault.update({
+          where: { id: vault.id },
+          data: { name: name.trim() },
+        });
       }
-      updated = await prisma.vault.update({
-        where: { id: vault.id },
-        data: allowed,
-      });
     }
   }
 

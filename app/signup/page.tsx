@@ -1,7 +1,7 @@
 // app/signup/page.tsx
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+import { authOptions } from "@/lib/auth";
 
 import SignUpForm from "./SignUpForm"; // your existing signup client form
 

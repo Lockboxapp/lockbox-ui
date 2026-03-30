@@ -1,136 +1,102 @@
 "use client";
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState } from "react";
 
-type NewVaultModalProps = {
+type Props = {
   open: boolean;
   onClose: () => void;
-  onCreated: (vault: any) => void; // parent will merge this into state
+  onCreated?: (vault: {
+    id: string;
+    name: string;
+    balance: number;
+    createdAt?: string | Date;
+    updatedAt?: string | Date;
+  }) => void;
 };
 
-export default function NewVaultModal({ open, onClose, onCreated }: NewVaultModalProps) {
+export default function NewVaultModal({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
-  const [target, setTarget] = useState<number>(0);
-  const [dueDate, setDueDate] = useState<string>(""); // yyyy-mm-dd
-  const [requireKeyholder, setRequireKeyholder] = useState(false);
+  const [initialBalance, setInitialBalance] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
 
   if (!open) return null;
 
-  async function handleSubmit() {
-    setError("");
-    if (!name.trim()) {
-      setError("Please enter a vault name.");
-      return;
-    }
-    if (!Number.isFinite(target) || target <= 0) {
-      setError("Target must be a positive number.");
-      return;
-    }
-
-    setSubmitting(true);
+  const submit = async () => {
     try {
+      setSubmitting(true);
+      setError(null);
+
+      const payload: Record<string, unknown> = { name: name.trim() };
+      if (initialBalance !== "" && Number.isFinite(Number(initialBalance))) {
+        payload.initialBalance = Number(initialBalance);
+      }
+
       const res = await fetch("/api/vaults", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          target: Math.round(Number(target)), // store as integer
-          saved: 0,
-          locked: 0,
-          dueDate: dueDate ? new Date(dueDate) : null,
-          isLocked: false,
-          requireKeyholder,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const msg = await res.text().catch(() => "");
-        throw new Error(msg || `Create failed (${res.status})`);
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error || "Failed to create vault");
       }
 
       const created = await res.json();
-      onCreated(created);
+      onCreated?.(created);
       onClose();
-      // reset form after close
-      setName(""); setTarget(0); setDueDate(""); setRequireKeyholder(false);
+      setName("");
+      setInitialBalance("");
     } catch (e: any) {
-      setError(e?.message || "Failed to create vault.");
+      setError(e?.message || "Something went wrong");
     } finally {
       setSubmitting(false);
     }
-  }
+  };
 
   return (
-    <AnimatePresence>
-      <motion.div
-        className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      >
-        <motion.div
-          className="w-full max-w-sm rounded-3xl bg-white p-6"
-          initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }}
-        >
-          <div className="text-lg font-semibold mb-4">Create New Vault</div>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <h2 className="mb-4 text-xl font-semibold">Create New Vault</h2>
 
-          <label className="block text-sm mb-1">Vault name</label>
-          <input
-            className="w-full rounded-xl border px-3 py-2 outline-none mb-3"
-            placeholder="e.g., Rent safe-deposit box"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+        <label className="mb-2 block text-sm font-medium">Name</label>
+        <input
+          className="mb-4 w-full rounded-lg border p-2"
+          placeholder="e.g., Bills, Emergency Fund"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
 
-          <label className="block text-sm mb-1">Target amount (USD)</label>
-          <input
-            type="number"
-            min={1}
-            className="w-full rounded-xl border px-3 py-2 outline-none mb-3"
-            placeholder="1500"
-            value={target}
-            onChange={(e) => setTarget(Number(e.target.value || 0))}
-          />
+        <label className="mb-2 block text-sm font-medium">
+          Initial Balance (optional)
+        </label>
+        <input
+          className="mb-2 w-full rounded-lg border p-2"
+          type="number"
+          min={0}
+          value={initialBalance}
+          onChange={(e) => setInitialBalance(e.target.value)}
+        />
 
-          <label className="block text-sm mb-1">Due date (optional)</label>
-          <input
-            type="date"
-            className="w-full rounded-xl border px-3 py-2 outline-none mb-4"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-          />
+        {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
 
-          <label className="flex items-center justify-between p-3 rounded-xl border mb-4 cursor-pointer">
-            <div>
-              <div className="text-sm font-medium">Require Keyholder for early unlock</div>
-              <div className="text-xs text-gray-500">
-                If enabled, early unlocks must be approved by a partner.
-              </div>
-            </div>
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={requireKeyholder}
-              onChange={(e) => setRequireKeyholder(e.target.checked)}
-            />
-          </label>
-
-          {error && <div className="text-rose-600 text-sm mb-3">{error}</div>}
-
-          <div className="grid grid-cols-2 gap-3">
-            <button disabled={submitting} onClick={onClose} className="py-3 rounded-xl border">
-              Cancel
-            </button>
-            <button
-              disabled={submitting}
-              onClick={handleSubmit}
-              className={`py-3 rounded-xl text-white ${submitting ? "bg-gray-400" : "bg-emerald-600"}`}
-            >
-              {submitting ? "Creating…" : "Create"}
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            className="rounded-xl border px-4 py-2"
+            onClick={onClose}
+            disabled={submitting}
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded-xl bg-black px-4 py-2 text-white"
+            onClick={submit}
+            disabled={!name.trim() || submitting}
+          >
+            {submitting ? "Creating..." : "Create"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

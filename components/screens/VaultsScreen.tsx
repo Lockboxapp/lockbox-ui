@@ -21,9 +21,15 @@ type Props = {
   vaultsError: string | null;
   onCreateNew: () => void;
   setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
-  setAddFundsModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
-  setLockModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
-  setUnlockModal: React.Dispatch<React.SetStateAction<null | { vaultId: string }>>;
+  setAddFundsModal: React.Dispatch<
+    React.SetStateAction<null | { vaultId: string }>
+  >;
+  setLockModal: React.Dispatch<
+    React.SetStateAction<null | { vaultId: string }>
+  >;
+  setUnlockModal: React.Dispatch<
+    React.SetStateAction<null | { vaultId: string }>
+  >;
 };
 
 const currency = (n: number | null | undefined) =>
@@ -54,40 +60,48 @@ export default function VaultsScreen({
   setLockModal,
   setUnlockModal,
 }: Props) {
+  // ✨ gate header action based on list state
+  const hasVaults = !vaultsLoading && !vaultsError && vaults.length > 0;
+
   return (
     <div className="px-4 py-5 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold">Vaults</h2>
-        {/*<motion.button
-          whileTap={{ scale: 0.96 }}
-          onClick={onCreateNew}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="text-sm font-medium">Create New</span>
-        </motion.button>*/}
+        {hasVaults && (
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={onCreateNew}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-600 text-white shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            <span className="text-sm font-medium">Create New</span>
+          </motion.button>
+        )}
       </div>
 
       {/* States */}
-      {vaultsLoading && <div className="text-sm text-gray-500">Loading vaults…</div>}
-      {vaultsError && <div className="text-sm text-rose-600">Error: {vaultsError}</div>}
+      {vaultsLoading && (
+        <div className="text-sm text-gray-500">Loading vaults…</div>
+      )}
+      {vaultsError && (
+        <div className="text-sm text-rose-600">Error: {vaultsError}</div>
+      )}
       {!vaultsLoading && !vaultsError && vaults.length === 0 && (
-  <Card className="p-6 text-center border-dashed border-gray-300">
-    <div className="text-gray-600 mb-3 text-sm">
-      No vaults yet. Let’s start building your savings!
-    </div>
-    <motion.button
-      whileTap={{ scale: 0.96 }}
-      onClick={onCreateNew}
-      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
-    >
-      <Plus className="h-4 w-4" />
-      Create Your First Vault
-    </motion.button>
-  </Card>
-)}
-
+        <Card className="p-6 text-center border-dashed border-gray-300">
+          <div className="text-gray-600 mb-3 text-sm">
+            No vaults yet. Let’s start building your savings!
+          </div>
+          <motion.button
+            whileTap={{ scale: 0.96 }}
+            onClick={onCreateNew}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Create Your First Vault
+          </motion.button>
+        </Card>
+      )}
 
       {/* List */}
       {!vaultsLoading && !vaultsError && vaults.length > 0 && (
@@ -118,7 +132,10 @@ export default function VaultsScreen({
                 {/* Actions */}
                 <div className="mt-3 flex items-center justify-between">
                   <div className="text-sm text-gray-600">
-                    Saved: <span className="font-medium text-gray-900">{currency(v.saved)}</span>
+                    Saved:{" "}
+                    <span className="font-medium text-gray-900">
+                      {currency(v.saved)}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -150,14 +167,24 @@ export default function VaultsScreen({
                           : "inset 0 2px 4px rgba(0,0,0,0.15)",
                         backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
                       }}
-                      transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                      transition={{
+                        type: "spring",
+                        stiffness: 260,
+                        damping: 18,
+                      }}
                       onClick={() => {
                         if (v.isLocked) setUnlockModal({ vaultId: v.id });
                         else setLockModal({ vaultId: v.id });
                       }}
                       className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
-                      aria-label={v.isLocked ? "Vault locked" : "Vault unlocked"}
-                      title={v.isLocked ? "Tap to request unlock" : "Tap to lock funds"}
+                      aria-label={
+                        v.isLocked ? "Vault locked" : "Vault unlocked"
+                      }
+                      title={
+                        v.isLocked
+                          ? "Tap to request unlock"
+                          : "Tap to lock funds"
+                      }
                     >
                       {v.isLocked ? (
                         <Lock className="h-4 w-4 text-gray-600" />
