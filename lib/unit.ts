@@ -319,3 +319,110 @@ export async function getServerCustomerToken(
 
   return tokenResult.data.attributes.token;
 }
+// ------------------------------------------------------------
+// Linked Accounts
+// Links an external bank account to a Unit customer
+// In production this goes through Plaid
+// In sandbox we create directly with test routing numbers
+// ------------------------------------------------------------
+// ------------------------------------------------------------
+// Simulate ACH funding in sandbox
+// In production this uses Plaid to link real bank accounts
+// In sandbox we use Unit's simulation endpoint directly
+// ------------------------------------------------------------
+export async function simulateSandboxDeposit({
+  unitAccountId,
+  amountInCents,
+}: {
+  unitAccountId: string;
+  amountInCents: number;
+}) {
+  return unitFetch<{ data: { id: string; attributes: { balance: number } } }>(
+    `/sandbox/received-payments`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        data: {
+          type: "achReceivedPayment",
+          attributes: {
+            amount: amountInCents,
+            direction: "Credit",
+            description: "Sandbox deposit",
+            companyName: "LockBox",
+            completionDate: new Date().toISOString().split("T")[0],
+            secCode: "PPD",
+          },
+          relationships: {
+            account: {
+              data: { type: "depositAccount", id: unitAccountId },
+            },
+          },
+        },
+      }),
+    }
+  );
+}
+
+// ------------------------------------------------------------
+// ACH Payment — Pull funds from linked bank into a Unit account
+// direction: Credit = money coming INTO the Unit account
+// ------------------------------------------------------------
+export async function createAchDeposit({
+  unitAccountId,
+  linkedAccountId,
+  amountInCents,
+  description,
+  customerToken,
+}: {
+  unitAccountId: string;
+  linkedAccountId: string;
+  amountInCents: number;
+  description: string;
+  customerToken: string;
+}) {
+  const res = await fetch(`${UNIT_API_URL}/payments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/vnd.api+json",
+      Authorization: `Bearer ${customerToken}`,
+    },
+    body: JSON.stringify({
+      data: {
+        type: "achPayment",
+        attributes: {
+          amount: amountInCents,
+          direction: "Credit",
+          description: description.slice(0, 10), // Unit limit
+        },
+        relationships: {
+          account: {
+            data: { type: "depositAccount", id: unitAccountId },
+          },
+          counterparty: {
+            data: { type: "achLinkedAccount", id: linkedAccountId },
+          },
+        },
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    console.error("[Unit] ACH deposit error", JSON.stringify(error, null, 2));
+    const message =
+      error?.errors?.[0]?.detail ?? error?.errors?.[0]?.title ?? res.statusText;
+    throw new Error(`[Unit ${res.status}] ${message}`);
+  }
+
+  return res.json() as Promise<{
+    data: {
+      id: string;
+      type: string;
+      attributes: {
+        amount: number;
+        direction: string;
+        status: string;
+      };
+    };
+  }>;
+}
