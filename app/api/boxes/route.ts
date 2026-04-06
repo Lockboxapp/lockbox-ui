@@ -9,6 +9,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS } from "@/lib/types";
+import {
+  createDepositAccountForCustomer,
+  getServerCustomerToken,
+} from "@/lib/unit";
 
 // ------------------------------------------------------------
 // GET — return all boxes for the authenticated user
@@ -53,6 +57,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Fetch user including Unit customer ID
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, unitCustomerId: true },
+    });
+
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+
     const body = await req.json();
     const { name, description, targetAmount, lockUntil } = body;
 
@@ -70,6 +84,34 @@ export async function POST(req: NextRequest) {
         userId: session.user.id,
       },
     });
+
+    // If the user has a Unit customer ID, create a deposit account for this box
+    if (user.unitCustomerId) {
+      try {
+        const customerToken = await getServerCustomerToken(user.unitCustomerId);
+
+        const unitAccount = await createDepositAccountForCustomer({
+          customerId: user.unitCustomerId,
+          customerToken,
+          tags: {
+            boxId: box.id,
+            boxName: box.name,
+            userId: session.user.id,
+          },
+        });
+
+        await prisma.box.update({
+          where: { id: box.id },
+          data: { unitAccountId: unitAccount.data.id },
+        });
+      } catch (unitError) {
+        // Don't fail box creation if Unit fails — log and continue
+        console.error(
+          "[POST /api/boxes] Unit account creation failed:",
+          unitError
+        );
+      }
+    }
 
     return NextResponse.json(box, { status: 201 });
   } catch (error) {
