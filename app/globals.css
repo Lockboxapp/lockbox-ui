@@ -1,8 +1,29 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --vault: #0f1117;
+  --slate: #1e2433;
+  --slate2: #2a3248;
+  --gold: #c9a84c;
+  --gold-bg: rgba(201, 168, 76, 0.1);
+  --gold-border: rgba(201, 168, 76, 0.22);
+  --green: #4ade80;
+  --green-bg: rgba(74, 222, 128, 0.09);
+  --green-border: rgba(74, 222, 128, 0.18);
+  --coral: #ff6b4a;
+  --coral-bg: rgba(255, 107, 74, 0.09);
+  --coral-border: rgba(255, 107, 74, 0.18);
+  --dim: rgba(232, 227, 216, 0.32);
+  --dimmer: rgba(232, 227, 216, 0.14);
+  --text: #e8e3d8;
+  --card-border: rgba(255, 255, 255, 0.07);
+  --serif: "Georgia", serif;
+  --mono: "Courier New", monospace;
+}
+
+body {
+  background: #0a0c12;
+  color: var(--text);
 }
 
 @theme inline {

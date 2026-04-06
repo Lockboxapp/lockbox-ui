@@ -1,5 +1,11 @@
-import VaultsScreen from "@/features/vaults/VaultsScreen";
+import BoxesScreen from "@/features/vaults/BoxesScreen";
 
 export default function VaultsPage() {
-  return <VaultsScreen />; // nothing else here
+  return <BoxesScreen />;
 }
+//```
+
+//Save it. Then open your browser and navigate to:
+//```
+//http://localhost:3000/vaults
+//
