@@ -1,7 +1,6 @@
 // ============================================================
 // features/vaults/BoxesScreen.tsx
-// Boxes screen — wired to real API
-// Replaces mock VaultsScreen with live data
+// Safe Deposit Boxes screen — fully wired to real API
 // ============================================================
 "use client";
 
@@ -34,6 +33,7 @@ type Box = {
   balance: number;
   targetAmount: number | null;
   lockUntil: string | null;
+  unitAccountId: string | null;
   keyholder: Keyholder | null;
   unlockRequests: UnlockRequest[];
   createdAt: string;
@@ -85,7 +85,85 @@ function statusLabel(status: string) {
 }
 
 // ------------------------------------------------------------
-// Sub-components
+// Shared input styles
+// ------------------------------------------------------------
+const inp: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid var(--card-border)",
+  color: "var(--text)",
+  fontSize: 14,
+  boxSizing: "border-box",
+};
+const lbl: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--dim)",
+  display: "block",
+  marginBottom: 6,
+};
+const cancelBtn: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 11,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid var(--card-border)",
+  color: "var(--dim)",
+  fontSize: 13,
+  cursor: "pointer",
+};
+
+// ------------------------------------------------------------
+// Sheet wrapper
+// ------------------------------------------------------------
+function Sheet({
+  onClose,
+  border,
+  children,
+}: {
+  onClose: () => void;
+  border?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "flex-end",
+        zIndex: 50,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "var(--slate2)",
+          border: `1px solid ${border ?? "var(--card-border)"}`,
+          borderRadius: "22px 22px 0 0",
+          padding: "20px 18px 36px",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            width: 36,
+            height: 3,
+            background: "rgba(255,255,255,0.12)",
+            borderRadius: 2,
+            margin: "0 auto 18px",
+          }}
+        />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------
+// SummaryCard
 // ------------------------------------------------------------
 function SummaryCard({
   label,
@@ -111,13 +189,13 @@ function SummaryCard({
         style={{
           fontFamily: "var(--mono)",
           fontSize: 14,
+          marginBottom: 2,
           color:
             accent === "gold"
               ? "var(--gold)"
               : accent === "green"
               ? "var(--green)"
               : "var(--text)",
-          marginBottom: 2,
         }}
       >
         {value}
@@ -136,22 +214,54 @@ function SummaryCard({
   );
 }
 
+// ------------------------------------------------------------
+// BoxCard
+// ------------------------------------------------------------
 function BoxCard({
   box,
   onLock,
   onRequestUnlock,
   onInviteKeyholder,
+  onDeposit,
 }: {
   box: Box;
   onLock: (box: Box) => void;
   onRequestUnlock: (box: Box) => void;
   onInviteKeyholder: (box: Box) => void;
+  onDeposit: (box: Box) => void;
 }) {
   const pct = progressPct(box.balance, box.targetAmount);
   const color = statusColor(box.status);
   const isLocked = box.status === BOX_STATUS.LOCKED;
   const isPending = box.status === BOX_STATUS.UNLOCK_PENDING;
+  const canFund =
+    box.status === BOX_STATUS.CREATED || box.status === BOX_STATUS.FUNDING;
   const days = box.lockUntil ? daysUntil(box.lockUntil) : null;
+
+  const pillBg =
+    color === "gold"
+      ? "var(--gold-bg)"
+      : color === "green"
+      ? "var(--green-bg)"
+      : color === "coral"
+      ? "var(--coral-bg)"
+      : "rgba(255,255,255,0.04)";
+  const pillBorder =
+    color === "gold"
+      ? "var(--gold-border)"
+      : color === "green"
+      ? "var(--green-border)"
+      : color === "coral"
+      ? "var(--coral-border)"
+      : "var(--card-border)";
+  const pillColor =
+    color === "gold"
+      ? "var(--gold)"
+      : color === "green"
+      ? "var(--green)"
+      : color === "coral"
+      ? "var(--coral)"
+      : "var(--dim)";
 
   return (
     <div
@@ -200,31 +310,9 @@ function BoxCard({
             borderRadius: 99,
             padding: "3px 9px",
             fontSize: 10,
-            background:
-              color === "gold"
-                ? "var(--gold-bg)"
-                : color === "green"
-                ? "var(--green-bg)"
-                : color === "coral"
-                ? "var(--coral-bg)"
-                : "rgba(255,255,255,0.04)",
-            border: `1px solid ${
-              color === "gold"
-                ? "var(--gold-border)"
-                : color === "green"
-                ? "var(--green-border)"
-                : color === "coral"
-                ? "var(--coral-border)"
-                : "var(--card-border)"
-            }`,
-            color:
-              color === "gold"
-                ? "var(--gold)"
-                : color === "green"
-                ? "var(--green)"
-                : color === "coral"
-                ? "var(--coral)"
-                : "var(--dim)",
+            background: pillBg,
+            border: `1px solid ${pillBorder}`,
+            color: pillColor,
           }}
         >
           {statusLabel(box.status)}
@@ -246,10 +334,10 @@ function BoxCard({
             height: "100%",
             width: `${pct}%`,
             borderRadius: 2,
+            transition: "width .4s ease",
             background: isLocked
               ? "linear-gradient(90deg,#a07832,#c9a84c)"
               : "linear-gradient(90deg,#16a34a,#4ade80)",
-            transition: "width .4s ease",
           }}
         />
       </div>
@@ -318,7 +406,7 @@ function BoxCard({
         ))}
       </div>
 
-      {/* Keyholder status */}
+      {/* Keyholder */}
       {box.keyholder && (
         <div
           style={{
@@ -367,8 +455,26 @@ function BoxCard({
             + Keyholder
           </button>
         )}
-        {(box.status === BOX_STATUS.CREATED ||
-          box.status === BOX_STATUS.FUNDING) && (
+        {canFund && (
+          <button
+            onClick={() => onDeposit(box)}
+            style={{
+              flex: 1,
+              padding: "8px 0",
+              borderRadius: 10,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: "pointer",
+              textAlign: "center",
+              background: "var(--green-bg)",
+              border: "1px solid var(--green-border)",
+              color: "var(--green)",
+            }}
+          >
+            + Deposit
+          </button>
+        )}
+        {canFund && (
           <button
             onClick={() => onLock(box)}
             style={{
@@ -428,6 +534,217 @@ function BoxCard({
 }
 
 // ------------------------------------------------------------
+// Create Box Modal
+// ------------------------------------------------------------
+function CreateBoxModal({
+  onClose,
+  onConfirm,
+}: {
+  onClose: () => void;
+  onConfirm: (data: {
+    name: string;
+    targetAmount: number;
+    lockUntil: string;
+  }) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [targetAmount, setTargetAmount] = useState("");
+  const [lockUntil, setLockUntil] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    if (!targetAmount || isNaN(Number(targetAmount))) {
+      setError("Valid target amount required");
+      return;
+    }
+    if (!lockUntil) {
+      setError("Lock date is required");
+      return;
+    }
+    if (new Date(lockUntil) <= new Date()) {
+      setError("Lock date must be in the future");
+      return;
+    }
+    setLoading(true);
+    try {
+      await onConfirm({
+        name: name.trim(),
+        targetAmount: Number(targetAmount),
+        lockUntil: new Date(lockUntil).toISOString(),
+      });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={onClose} border="var(--gold-border)">
+      <div
+        style={{
+          fontFamily: "var(--serif)",
+          fontSize: 20,
+          color: "var(--text)",
+          marginBottom: 4,
+        }}
+      >
+        New safe deposit box
+      </div>
+      <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
+        Lock funds until your due date
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Rent — May"
+          style={inp}
+        />
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Target amount ($)</label>
+        <input
+          type="number"
+          value={targetAmount}
+          onChange={(e) => setTargetAmount(e.target.value)}
+          placeholder="1200"
+          style={inp}
+        />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>Lock until</label>
+        <input
+          type="date"
+          value={lockUntil}
+          onChange={(e) => setLockUntil(e.target.value)}
+          style={inp}
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+        <button onClick={onClose} style={cancelBtn}>
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: 12,
+            borderRadius: 11,
+            background: "linear-gradient(135deg,#c9a84c,#a07832)",
+            border: "none",
+            color: "#0d0d0d",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Creating…" : "Create Safe Deposit Box"}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------
+// Deposit Modal
+// ------------------------------------------------------------
+function DepositModal({
+  box,
+  onClose,
+  onConfirm,
+}: {
+  box: Box;
+  onClose: () => void;
+  onConfirm: (amount: number) => Promise<void>;
+}) {
+  const [amount, setAmount] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    if (!amount || isNaN(Number(amount)) || Number(amount) < 1) {
+      setError("Minimum deposit is $1");
+      return;
+    }
+    setLoading(true);
+    try {
+      await onConfirm(Number(amount));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Sheet onClose={onClose} border="var(--green-border)">
+      <div
+        style={{
+          fontFamily: "var(--serif)",
+          fontSize: 20,
+          color: "var(--text)",
+          marginBottom: 4,
+        }}
+      >
+        Deposit funds
+      </div>
+      <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
+        {box.name}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>Amount ($)</label>
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="100"
+          style={inp}
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+        <button onClick={onClose} style={cancelBtn}>
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: 12,
+            borderRadius: 11,
+            background: "var(--green-bg)",
+            border: "1px solid var(--green-border)",
+            color: "var(--green)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Depositing…" : `Deposit $${amount || "0"}`}
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
+// ------------------------------------------------------------
 // Lock Modal
 // ------------------------------------------------------------
 function LockModal({
@@ -463,121 +780,56 @@ function LockModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "flex-end",
-        zIndex: 50,
-      }}
-    >
+    <Sheet onClose={onClose} border="var(--gold-border)">
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--slate2)",
-          border: "1px solid var(--card-border)",
-          borderRadius: "22px 22px 0 0",
-          padding: "20px 18px 32px",
-          width: "100%",
+          fontFamily: "var(--serif)",
+          fontSize: 20,
+          color: "var(--text)",
+          marginBottom: 4,
         }}
       >
-        <div
-          style={{
-            width: 36,
-            height: 3,
-            background: "rgba(255,255,255,0.12)",
-            borderRadius: 2,
-            margin: "0 auto 18px",
-          }}
-        />
-        <div
-          style={{
-            fontFamily: "var(--serif)",
-            fontSize: 20,
-            color: "var(--text)",
-            marginBottom: 4,
-          }}
-        >
-          Lock funds
-        </div>
-        <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
-          {box.name}
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "var(--dim)",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Lock until
-          </label>
-          <input
-            type="date"
-            value={lockUntil}
-            onChange={(e) => setLockUntil(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--text)",
-              fontSize: 14,
-            }}
-          />
-        </div>
-
-        {error && (
-          <div
-            style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--dim)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "linear-gradient(135deg,#c9a84c,#a07832)",
-              border: "none",
-              color: "#0d0d0d",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Locking…" : "🔒 Confirm Lock"}
-          </button>
-        </div>
+        Lock safe deposit box
       </div>
-    </div>
+      <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
+        {box.name}
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>Lock until</label>
+        <input
+          type="date"
+          value={lockUntil}
+          onChange={(e) => setLockUntil(e.target.value)}
+          style={inp}
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+        <button onClick={onClose} style={cancelBtn}>
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: 12,
+            borderRadius: 11,
+            background: "linear-gradient(135deg,#c9a84c,#a07832)",
+            border: "none",
+            color: "#0d0d0d",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Locking…" : "🔒 Confirm Lock"}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -618,152 +870,67 @@ function UnlockModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "flex-end",
-        zIndex: 50,
-      }}
-    >
+    <Sheet onClose={onClose} border="var(--coral-border)">
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--slate2)",
-          border: "1px solid var(--coral-border)",
-          borderRadius: "22px 22px 0 0",
-          padding: "20px 18px 32px",
-          width: "100%",
+          fontFamily: "var(--serif)",
+          fontSize: 20,
+          color: "var(--text)",
+          marginBottom: 4,
         }}
       >
-        <div
-          style={{
-            width: 36,
-            height: 3,
-            background: "rgba(255,255,255,0.12)",
-            borderRadius: 2,
-            margin: "0 auto 18px",
-          }}
-        />
-        <div
-          style={{
-            fontFamily: "var(--serif)",
-            fontSize: 20,
-            color: "var(--text)",
-            marginBottom: 4,
-          }}
-        >
-          Request unlock
-        </div>
-        <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
-          {box.name} · keyholder will be notified
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "var(--dim)",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Why do you need to unlock early?
-          </label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            rows={2}
-            placeholder="Be honest."
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--text)",
-              fontSize: 13,
-              resize: "none",
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "var(--dim)",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            What will you do differently next time?
-          </label>
-          <textarea
-            value={reflection}
-            onChange={(e) => setReflection(e.target.value)}
-            rows={2}
-            placeholder="Reflect before you unlock."
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--text)",
-              fontSize: 13,
-              resize: "none",
-            }}
-          />
-        </div>
-
-        {error && (
-          <div
-            style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--dim)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "var(--coral-bg)",
-              border: "1px solid var(--coral-border)",
-              color: "var(--coral)",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Submitting…" : "Submit Request"}
-          </button>
-        </div>
+        Request unlock
       </div>
-    </div>
+      <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
+        {box.name} · keyholder will be notified
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Why do you need to unlock early?</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={2}
+          placeholder="Be honest."
+          style={{ ...inp, resize: "none" } as React.CSSProperties}
+        />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>What will you do differently next time?</label>
+        <textarea
+          value={reflection}
+          onChange={(e) => setReflection(e.target.value)}
+          rows={2}
+          placeholder="Reflect before you unlock."
+          style={{ ...inp, resize: "none" } as React.CSSProperties}
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+        <button onClick={onClose} style={cancelBtn}>
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: 12,
+            borderRadius: 11,
+            background: "var(--coral-bg)",
+            border: "1px solid var(--coral-border)",
+            color: "var(--coral)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Submitting…" : "Submit Request"}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -800,150 +967,67 @@ function KeyholderModal({
   }
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.6)",
-        display: "flex",
-        alignItems: "flex-end",
-        zIndex: 50,
-      }}
-    >
+    <Sheet onClose={onClose} border="var(--gold-border)">
       <div
-        onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--slate2)",
-          border: "1px solid var(--gold-border)",
-          borderRadius: "22px 22px 0 0",
-          padding: "20px 18px 32px",
-          width: "100%",
+          fontFamily: "var(--serif)",
+          fontSize: 20,
+          color: "var(--text)",
+          marginBottom: 4,
         }}
       >
-        <div
-          style={{
-            width: 36,
-            height: 3,
-            background: "rgba(255,255,255,0.12)",
-            borderRadius: 2,
-            margin: "0 auto 18px",
-          }}
-        />
-        <div
-          style={{
-            fontFamily: "var(--serif)",
-            fontSize: 20,
-            color: "var(--text)",
-            marginBottom: 4,
-          }}
-        >
-          Invite keyholder
-        </div>
-        <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
-          {box.name} · they'll approve any early unlock
-        </div>
-
-        <div style={{ marginBottom: 12 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "var(--dim)",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Their email
-          </label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="partner@email.com"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--text)",
-              fontSize: 14,
-            }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label
-            style={{
-              fontSize: 11,
-              color: "var(--dim)",
-              display: "block",
-              marginBottom: 6,
-            }}
-          >
-            Their name (optional)
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Marcus"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--text)",
-              fontSize: 14,
-            }}
-          />
-        </div>
-
-        {error && (
-          <div
-            style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}
-          >
-            {error}
-          </div>
-        )}
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid var(--card-border)",
-              color: "var(--dim)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            style={{
-              padding: 12,
-              borderRadius: 11,
-              background: "linear-gradient(135deg,#c9a84c,#a07832)",
-              border: "none",
-              color: "#0d0d0d",
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {loading ? "Sending…" : "Send Invite"}
-          </button>
-        </div>
+        Invite keyholder
       </div>
-    </div>
+      <div style={{ fontSize: 11, color: "var(--dim)", marginBottom: 16 }}>
+        {box.name} · they'll approve any early unlock
+      </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Their email</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="partner@email.com"
+          style={inp}
+        />
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <label style={lbl}>Their name (optional)</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Marcus"
+          style={inp}
+        />
+      </div>
+      {error && (
+        <div style={{ fontSize: 11, color: "var(--coral)", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 8 }}>
+        <button onClick={onClose} style={cancelBtn}>
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          style={{
+            padding: 12,
+            borderRadius: 11,
+            background: "linear-gradient(135deg,#c9a84c,#a07832)",
+            border: "none",
+            color: "#0d0d0d",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Sending…" : "Send Invite"}
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -954,16 +1038,17 @@ export default function BoxesScreen() {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
   const [lockTarget, setLockTarget] = useState<Box | null>(null);
   const [unlockTarget, setUnlockTarget] = useState<Box | null>(null);
   const [keyholderTarget, setKeyholderTarget] = useState<Box | null>(null);
+  const [depositTarget, setDepositTarget] = useState<Box | null>(null);
 
   const fetchBoxes = useCallback(async () => {
     try {
       const res = await fetch("/api/boxes");
       if (!res.ok) throw new Error("Failed to load boxes");
-      const data = await res.json();
-      setBoxes(data);
+      setBoxes(await res.json());
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -975,7 +1060,6 @@ export default function BoxesScreen() {
     fetchBoxes();
   }, [fetchBoxes]);
 
-  // Totals
   const totalSaved = boxes.reduce((sum, b) => sum + b.balance, 0);
   const totalLocked = boxes
     .filter(
@@ -987,6 +1071,38 @@ export default function BoxesScreen() {
     (b) => b.status !== BOX_STATUS.CLOSED
   ).length;
 
+  async function handleCreateBox(data: {
+    name: string;
+    targetAmount: number;
+    lockUntil: string;
+  }) {
+    const res = await fetch("/api/boxes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      throw new Error(d.error ?? "Failed to create");
+    }
+    setShowCreate(false);
+    await fetchBoxes();
+  }
+
+  async function handleDeposit(box: Box, amount: number) {
+    const res = await fetch(`/api/boxes/${box.id}/deposit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amountInDollars: amount }),
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      throw new Error(d.error ?? "Failed to deposit");
+    }
+    setDepositTarget(null);
+    await fetchBoxes();
+  }
+
   async function handleLock(box: Box, lockUntil: string) {
     const res = await fetch(`/api/boxes/${box.id}`, {
       method: "PATCH",
@@ -994,8 +1110,8 @@ export default function BoxesScreen() {
       body: JSON.stringify({ action: "lock", lockUntil }),
     });
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error ?? "Failed to lock");
+      const d = await res.json();
+      throw new Error(d.error ?? "Failed to lock");
     }
     setLockTarget(null);
     await fetchBoxes();
@@ -1012,8 +1128,8 @@ export default function BoxesScreen() {
       body: JSON.stringify({ boxId: box.id, reason, reflection }),
     });
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error ?? "Failed to submit request");
+      const d = await res.json();
+      throw new Error(d.error ?? "Failed to submit");
     }
     setUnlockTarget(null);
     await fetchBoxes();
@@ -1026,8 +1142,8 @@ export default function BoxesScreen() {
       body: JSON.stringify({ boxId: box.id, email, name: name || null }),
     });
     if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error ?? "Failed to invite keyholder");
+      const d = await res.json();
+      throw new Error(d.error ?? "Failed to invite");
     }
     setKeyholderTarget(null);
     await fetchBoxes();
@@ -1043,10 +1159,9 @@ export default function BoxesScreen() {
           fontSize: 13,
         }}
       >
-        Loading boxes…
+        Loading…
       </div>
     );
-
   if (error)
     return (
       <div style={{ padding: 16, color: "var(--coral)", fontSize: 13 }}>
@@ -1056,7 +1171,7 @@ export default function BoxesScreen() {
 
   return (
     <div style={{ padding: "14px 14px 100px" }}>
-      {/* Summary row */}
+      {/* Summary */}
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <SummaryCard label="Total saved" value={currency(totalSaved / 100)} />
         <SummaryCard
@@ -1064,10 +1179,33 @@ export default function BoxesScreen() {
           value={currency(totalLocked / 100)}
           accent="gold"
         />
-        <SummaryCard label="Boxes" value={String(activeBoxes)} accent="green" />
+        <SummaryCard
+          label="Safe Deposit Boxes"
+          value={String(activeBoxes)}
+          accent="green"
+        />
       </div>
 
-      {/* Boxes */}
+      {/* New box button */}
+      <button
+        onClick={() => setShowCreate(true)}
+        style={{
+          width: "100%",
+          padding: 12,
+          borderRadius: 14,
+          marginBottom: 14,
+          background: "var(--gold-bg)",
+          border: "1px dashed var(--gold-border)",
+          color: "var(--gold)",
+          fontSize: 13,
+          fontWeight: 500,
+          cursor: "pointer",
+        }}
+      >
+        + New Safe Deposit Box
+      </button>
+
+      {/* Box list */}
       {boxes
         .filter((b) => b.status !== BOX_STATUS.CLOSED)
         .map((box) => (
@@ -1077,6 +1215,7 @@ export default function BoxesScreen() {
             onLock={setLockTarget}
             onRequestUnlock={setUnlockTarget}
             onInviteKeyholder={setKeyholderTarget}
+            onDeposit={setDepositTarget}
           />
         ))}
 
@@ -1091,11 +1230,24 @@ export default function BoxesScreen() {
             fontSize: 13,
           }}
         >
-          No boxes yet. Create one to get started.
+          No safe deposit boxes yet. Create your first one above.
         </div>
       )}
 
       {/* Modals */}
+      {showCreate && (
+        <CreateBoxModal
+          onClose={() => setShowCreate(false)}
+          onConfirm={handleCreateBox}
+        />
+      )}
+      {depositTarget && (
+        <DepositModal
+          box={depositTarget}
+          onClose={() => setDepositTarget(null)}
+          onConfirm={(amount) => handleDeposit(depositTarget, amount)}
+        />
+      )}
       {lockTarget && (
         <LockModal
           box={lockTarget}

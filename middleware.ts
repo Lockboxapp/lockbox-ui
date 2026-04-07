@@ -1,6 +1,8 @@
 // ============================================================
 // middleware.ts
-// Protects all routes under / except auth and keyholder pages
+// Protects all routes under (shell) group
+// Public routes: signin, signup, keyholder, api/auth,
+//                api/keyholders, api/unlock-requests
 // ============================================================
 
 import { withAuth } from "next-auth/middleware";
@@ -19,14 +21,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    /*
-     * Protect everything EXCEPT:
-     *   - /signin, /signup          — auth pages
-     *   - /api/auth/*               — NextAuth internals
-     *   - /api/keyholders/:token    — keyholder accept (token = auth)
-     *   - /api/unlock-requests/*    — approve/deny (token = auth)
-     *   - /_next/*, /favicon.ico    — Next.js internals
-     */
     "/((?!signin|signup|api/auth|api/signup|api/keyholders|api/unlock-requests|_next|favicon.ico).*)",
   ],
 };
