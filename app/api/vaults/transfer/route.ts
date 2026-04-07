@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     if (fromVaultId === toVaultId) {
       return NextResponse.json(
         { error: "Cannot transfer to the same vault" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -43,20 +43,20 @@ export async function POST(req: Request) {
     if (from.userId !== user.id || to.userId !== user.id) {
       return NextResponse.json(
         { error: "Unauthorized access to vaults" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     if (from.balance < amtNum) {
       return NextResponse.json(
         { error: "Insufficient balance in source vault" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const cents = Math.round(amtNum); // adjust if your UI passes dollars
 
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       const updatedFrom = await tx.vault.update({
         where: { id: from.id },
         data: { balance: { decrement: amtNum } },
@@ -95,7 +95,7 @@ export async function POST(req: Request) {
     console.error("Transfer error:", err);
     return NextResponse.json(
       { error: "Server error", detail: String(err?.message ?? err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -139,7 +139,7 @@ export async function PATCH(
           { status: 404 },
         );
 
-      updated = await prisma.$transaction(async (tx) => {
+      updated = await prisma.$transaction(async (tx: any) => {
         const fromAfter = await tx.vault.update({
           where: { id: vault.id },
           data: { balance: { decrement: amt } },
