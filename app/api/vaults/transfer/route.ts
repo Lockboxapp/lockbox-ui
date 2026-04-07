@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TX, type TransactionType } from "@/lib/types";
-import { prisma } from "@/lib/prisma"; // or instantiate here if you don't have this helper
+import { prisma } from "@/lib/db"; // or instantiate here if you don't have this helper
 
 export async function POST(req: Request) {
   try {

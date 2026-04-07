@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TX, type TransactionType } from "@/lib/types";
-import { prisma } from "@/lib/prisma"; // ensure this exists; otherwise instantiate PrismaClient here
+import { prisma } from "@/lib/db"; // ensure this exists; otherwise instantiate PrismaClient here
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
@@ -126,7 +126,7 @@ export async function PATCH(
       if (!amt || !toVaultId) {
         return NextResponse.json(
           { error: "Bad transfer params" },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -136,7 +136,7 @@ export async function PATCH(
       if (!toVault)
         return NextResponse.json(
           { error: "Target vault not found" },
-          { status: 404 }
+          { status: 404 },
         );
 
       updated = await prisma.$transaction(async (tx) => {
