@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-
-/** Reuse Prisma in dev (Next hot reload) */
-const prisma =
-  (globalThis as any).prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-  });
-if (process.env.NODE_ENV !== "production") (globalThis as any).prisma = prisma;
 
 /* ──────────────────────────────────────────────────────────────
    Validation
@@ -20,8 +13,7 @@ const getQuerySchema = z.object({
     .string()
     .optional()
     .transform((v) => (v ? Math.min(100, Math.max(1, Number(v))) : 20)),
-  cursor: z.string().nullish(), // transaction.id
-  // Matches your TransactionType enum
+  cursor: z.string().nullish(),
   type: z
     .enum([
       "DEPOSIT",
@@ -34,11 +26,10 @@ const getQuerySchema = z.object({
     .optional(),
   vaultId: z.string().optional(),
   categoryId: z.string().optional(),
-  // Optional filter by CategoryType (INCOME | EXPENSE)
   categoryType: z.enum(["INCOME", "EXPENSE"]).optional(),
-  from: z.string().optional(), // ISO date
-  to: z.string().optional(), // ISO date
-  q: z.string().optional(), // text search in description
+  from: z.string().optional(),
+  to: z.string().optional(),
+  q: z.string().optional(),
 });
 
 const postBodySchema = z.object({
@@ -52,17 +43,11 @@ const postBodySchema = z.object({
     "TRANSFER_OUT",
     "INCOME",
   ]),
-  amount: z.number().int().positive(), // cents
+  amount: z.number().int().positive(),
   description: z.string().max(280).nullable().optional(),
-  postedAt: z.string().datetime().optional(), // ISO
+  postedAt: z.string().datetime().optional(),
 });
 
-/* ──────────────────────────────────────────────────────────────
-   GET /api/transactions
-   Query:
-     limit, cursor, type, vaultId, categoryId, categoryType, from, to, q
-   Returns: { items: TxWithJoins[], nextCursor: string|null }
-   ────────────────────────────────────────────────────────────── */
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id)
@@ -70,12 +55,11 @@ export async function GET(req: Request) {
 
   const { searchParams } = new URL(req.url);
   const parsed = getQuerySchema.safeParse(Object.fromEntries(searchParams));
-  if (!parsed.success) {
+  if (!parsed.success)
     return NextResponse.json(
       { error: "Bad request", detail: parsed.error.flatten() },
       { status: 400 },
     );
-  }
 
   const {
     limit,
@@ -94,14 +78,7 @@ export async function GET(req: Request) {
     ...(type ? { type } : {}),
     ...(vaultId ? { vaultId } : {}),
     ...(categoryId ? { categoryId } : {}),
-    ...(categoryType
-      ? {
-          category: {
-            // joins Category.type (INCOME | EXPENSE)
-            type: categoryType as any,
-          },
-        }
-      : {}),
+    ...(categoryType ? { category: { type: categoryType as any } } : {}),
     ...(from || to
       ? {
           postedAt: {
@@ -110,42 +87,27 @@ export async function GET(req: Request) {
           },
         }
       : {}),
-    ...(q
-      ? {
-          description: q ? { contains: q } : undefined,
-        }
-      : {}),
+    ...(q ? { description: { contains: q } } : {}),
   };
 
-  // Stable, infinite-scroll-friendly pagination.
-  // Using composite order (postedAt desc, id desc) and cursor on id.
   const items = await prisma.transaction.findMany({
     where,
     orderBy: [{ postedAt: "desc" }, { id: "desc" }],
     take: (limit as number) + 1,
     ...(cursor ? { cursor: { id: cursor } } : {}),
     skip: cursor ? 1 : 0,
-    include: {
-      vault: true,
-      category: true,
-    },
+    include: { vault: true, category: true },
   });
 
   let nextCursor: string | null = null;
   if (items.length > (limit as number)) {
-    const next = items.pop(); // remove the lookahead record
+    const next = items.pop();
     nextCursor = next!.id;
   }
 
   return NextResponse.json({ items, nextCursor });
 }
 
-/* ──────────────────────────────────────────────────────────────
-   POST /api/transactions
-   Body (cents-based):
-     { type, amount, description?, vaultId?, categoryId?, postedAt? }
-   Returns: created transaction (with vault/category)
-   ────────────────────────────────────────────────────────────── */
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id)
@@ -153,12 +115,11 @@ export async function POST(req: Request) {
 
   const raw = await req.json().catch(() => null);
   const parsed = postBodySchema.safeParse(raw);
-  if (!parsed.success) {
+  if (!parsed.success)
     return NextResponse.json(
       { error: "Bad request", detail: parsed.error.flatten() },
       { status: 400 },
     );
-  }
 
   const {
     vaultId = null,
@@ -175,7 +136,7 @@ export async function POST(req: Request) {
       vaultId,
       categoryId,
       type,
-      amount, // cents
+      amount,
       description,
       postedAt: postedAt ? new Date(postedAt) : new Date(),
     },
