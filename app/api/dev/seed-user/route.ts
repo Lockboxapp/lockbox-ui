@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
 
-const prisma = new PrismaClient();
+("");
 
 export async function POST() {
   try {
@@ -13,7 +13,11 @@ export async function POST() {
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
-      return NextResponse.json({ ok: true, user: existing, note: "already exists" });
+      return NextResponse.json({
+        ok: true,
+        user: existing,
+        note: "already exists",
+      });
     }
 
     const hash = await bcrypt.hash(password, 10);
@@ -25,6 +29,9 @@ export async function POST() {
     return NextResponse.json({ ok: true, user });
   } catch (err: any) {
     console.error("seed-user error:", err);
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(err?.message || err) },
+      { status: 500 },
+    );
   }
 }

@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 
-const prisma = new PrismaClient();
+("");
 
 type Params = { id: string };
 
 export async function POST(
   req: Request,
-  ctx: { params: Promise<Params> } // 👈 params is a Promise
+  ctx: { params: Promise<Params> }, // 👈 params is a Promise
 ) {
   try {
     const { id: vaultId } = await ctx.params; // 👈 await it
@@ -44,7 +44,7 @@ export async function POST(
     console.error("Deposit error:", err);
     return NextResponse.json(
       { error: "Server error", detail: String(err?.message || err) },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
