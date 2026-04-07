@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { PrismaClient, Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 /** Reuse Prisma in dev (Next hot reload) */
@@ -73,7 +73,7 @@ export async function GET(req: Request) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Bad request", detail: parsed.error.flatten() },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -156,7 +156,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Bad request", detail: parsed.error.flatten() },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
