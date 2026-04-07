@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 /* ──────────────────────────────────────────────────────────────
@@ -73,7 +71,7 @@ export async function GET(req: Request) {
     q,
   } = parsed.data;
 
-  const where: Prisma.TransactionWhereInput = {
+  const where: any = {
     userId: session.user.id,
     ...(type ? { type } : {}),
     ...(vaultId ? { vaultId } : {}),
