@@ -116,26 +116,86 @@ export default function ShellLayout({
           onClick={() => setSettingsOpen(false)}
         >
           <div
-            className="absolute right-0 top-0 bottom-0 w-72 bg-white shadow-xl p-6 flex flex-col gap-4"
+            className="absolute right-0 top-0 bottom-0 w-80 bg-white shadow-xl flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-2">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <span className="font-semibold text-gray-900">Settings</span>
               <button
                 onClick={() => setSettingsOpen(false)}
-                className="text-gray-400"
+                className="text-gray-400 hover:text-gray-600"
               >
                 ✕
               </button>
             </div>
-            <div className="text-sm text-gray-500">{session?.user?.email}</div>
-            <hr className="border-gray-100" />
-            <button
-              onClick={() => signOut({ callbackUrl: "/signin" })}
-              className="text-left text-sm text-rose-600 font-medium"
-            >
-              Sign out
-            </button>
+
+            {/* User info */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="text-sm font-medium text-gray-900">
+                {session?.user?.name}
+              </div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                {session?.user?.email}
+              </div>
+            </div>
+
+            {/* Items */}
+            <div className="flex-1 overflow-y-auto py-2">
+              {[
+                { icon: "🔗", label: "Connect Bank", sub: "Not connected" },
+                {
+                  icon: "👥",
+                  label: "Manage Accountability Partners",
+                  sub: "0 partners",
+                },
+                {
+                  icon: "💳",
+                  label: "Manage Budgets & Savings",
+                  sub: "Split: 50/30/20",
+                },
+                { icon: "🌐", label: "Language", sub: "English" },
+                {
+                  icon: "❓",
+                  label: "Help & Feedback",
+                  sub: "Report a bug, request a feature",
+                },
+              ].map((item) => (
+                <button
+                  key={item.label}
+                  className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 text-left"
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-900">
+                      {item.label}
+                    </div>
+                    <div className="text-xs text-gray-500">{item.sub}</div>
+                  </div>
+                  <span className="text-gray-400 text-sm">›</span>
+                </button>
+              ))}
+
+              <button
+                onClick={() => signOut({ callbackUrl: "/signin" })}
+                className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 text-left"
+              >
+                <span className="text-lg">🚪</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-rose-600">
+                    Sign Out
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    You'll need to sign in again
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Version */}
+            <div className="px-6 py-4 border-t border-gray-100 text-center text-xs text-gray-400">
+              LockBox v1.0.0
+            </div>
           </div>
         </div>
       )}
