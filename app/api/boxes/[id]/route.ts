@@ -16,16 +16,18 @@ import { BOX_STATUS } from "@/lib/types";
 // ------------------------------------------------------------
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const box = await prisma.box.findUnique({
-      where: { id: params.id },
+      where: { id: id },
       include: {
         unlockRequests: {
           orderBy: { requestedAt: "desc" },
@@ -64,16 +66,18 @@ export async function GET(
 // ------------------------------------------------------------
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const box = await prisma.box.findUnique({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     if (!box) {
@@ -120,7 +124,7 @@ export async function PATCH(
       }
 
       const lockedBox = await prisma.box.update({
-        where: { id: params.id },
+        where: { id: id },
         data: {
           status: BOX_STATUS.LOCKED,
           lockUntil: lockDate,
@@ -134,7 +138,7 @@ export async function PATCH(
     // GENERAL UPDATE — name, description, targetAmount
     // --------------------------------------------------------
     const updatedBox = await prisma.box.update({
-      where: { id: params.id },
+      where: { id: id },
       data: {
         ...(name && { name: name.trim() }),
         ...(description !== undefined && { description }),
@@ -160,16 +164,18 @@ export async function PATCH(
 // ------------------------------------------------------------
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   try {
+    const { id } = await params;
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const box = await prisma.box.findUnique({
-      where: { id: params.id },
+      where: { id: id },
     });
 
     if (!box) {
@@ -189,7 +195,7 @@ export async function DELETE(
     }
 
     const closedBox = await prisma.box.update({
-      where: { id: params.id },
+      where: { id: id },
       data: { status: BOX_STATUS.CLOSED },
     });
 

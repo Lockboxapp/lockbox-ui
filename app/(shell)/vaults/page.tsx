@@ -74,6 +74,7 @@ export default function VaultsPage() {
   }, [fetchBoxes]);
 
   const vaults = boxes.map(toVaultShape);
+  const getBox = (id: string) => boxes.find((b) => b.id === id);
 
   return (
     <>
@@ -90,62 +91,91 @@ export default function VaultsPage() {
 
       {/* Create box modal */}
       {newVaultOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto">
-            <h3 className="font-semibold text-lg mb-4">New Safe Deposit Box</h3>
-            <CreateBoxForm
-              onClose={() => setNewVaultOpen(false)}
-              onSuccess={() => {
-                setNewVaultOpen(false);
-                fetchBoxes();
-              }}
-            />
-          </div>
-        </div>
+        <ModalSheet onClose={() => setNewVaultOpen(false)}>
+          <h3 className="font-semibold text-lg mb-4">New Safe Deposit Box</h3>
+          <CreateBoxForm
+            onClose={() => setNewVaultOpen(false)}
+            onSuccess={() => {
+              setNewVaultOpen(false);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
       )}
 
       {/* Deposit modal */}
       {addFundsModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto">
-            <h3 className="font-semibold text-lg mb-4">Add Funds</h3>
-            <DepositForm
-              boxId={addFundsModal.vaultId}
-              onClose={() => setAddFundsModal(null)}
-              onSuccess={() => {
-                setAddFundsModal(null);
-                fetchBoxes();
-              }}
-            />
-          </div>
-        </div>
+        <ModalSheet onClose={() => setAddFundsModal(null)}>
+          <h3 className="font-semibold text-lg mb-4">Add Funds</h3>
+          <DepositForm
+            boxId={addFundsModal.vaultId}
+            onClose={() => setAddFundsModal(null)}
+            onSuccess={() => {
+              setAddFundsModal(null);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
       )}
 
       {/* Lock modal */}
       {lockModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-end">
-          <div className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto">
-            <h3 className="font-semibold text-lg mb-4">
-              Lock Safe Deposit Box
-            </h3>
-            <LockForm
-              boxId={lockModal.vaultId}
-              onClose={() => setLockModal(null)}
-              onSuccess={() => {
-                setLockModal(null);
-                fetchBoxes();
-              }}
-            />
-          </div>
-        </div>
+        <ModalSheet onClose={() => setLockModal(null)}>
+          <h3 className="font-semibold text-lg mb-4">Lock Safe Deposit Box</h3>
+          <LockForm
+            boxId={lockModal.vaultId}
+            onClose={() => setLockModal(null)}
+            onSuccess={() => {
+              setLockModal(null);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
+
+      {/* Unlock request modal */}
+      {unlockModal && (
+        <ModalSheet onClose={() => setUnlockModal(null)}>
+          <UnlockRequestForm
+            box={getBox(unlockModal.vaultId) ?? null}
+            onClose={() => setUnlockModal(null)}
+            onSuccess={() => {
+              setUnlockModal(null);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
       )}
     </>
   );
 }
 
-// ------------------------------------------------------------
-// Create Box Form
-// ------------------------------------------------------------
+// ── Shared modal shell ─────────────────────────────────────
+
+function ModalSheet({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-end"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-t-2xl p-6 w-full max-w-md mx-auto max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Create Box Form ────────────────────────────────────────
+
 function CreateBoxForm({
   onClose,
   onSuccess,
@@ -171,7 +201,7 @@ function CreateBoxForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          targetAmount: target ? Number(target) : undefined,
+          targetAmount: target ? Math.round(Number(target) * 100) : undefined,
           lockUntil: lockUntil ? new Date(lockUntil).toISOString() : undefined,
         }),
       });
@@ -219,7 +249,7 @@ function CreateBoxForm({
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
         >
           {loading ? "Creating…" : "Create"}
         </button>
@@ -228,9 +258,8 @@ function CreateBoxForm({
   );
 }
 
-// ------------------------------------------------------------
-// Deposit Form
-// ------------------------------------------------------------
+// ── Deposit Form ───────────────────────────────────────────
+
 function DepositForm({
   boxId,
   onClose,
@@ -288,7 +317,7 @@ function DepositForm({
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
         >
           {loading ? "Depositing…" : `Deposit $${amount || "0"}`}
         </button>
@@ -297,9 +326,8 @@ function DepositForm({
   );
 }
 
-// ------------------------------------------------------------
-// Lock Form
-// ------------------------------------------------------------
+// ── Lock Form ──────────────────────────────────────────────
+
 function LockForm({
   boxId,
   onClose,
@@ -346,6 +374,10 @@ function LockForm({
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-gray-500">
+        Choose a date to lock until. Your keyholder must approve any early
+        unlock requests.
+      </p>
       <input
         className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm"
         type="date"
@@ -363,9 +395,161 @@ function LockForm({
         <button
           onClick={handleSubmit}
           disabled={loading}
-          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
         >
           {loading ? "Locking…" : "🔒 Lock"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Unlock Request Form ────────────────────────────────────
+
+function UnlockRequestForm({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [reflection, setReflection] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  async function handleSubmit() {
+    if (!reason.trim()) {
+      setError("Please provide a reason for the unlock request");
+      return;
+    }
+    if (!box) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch("/api/unlock-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boxId: box.id,
+          reason: reason.trim(),
+          reflection: reflection.trim() || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error ?? "Something went wrong.");
+        setLoading(false);
+        return;
+      }
+
+      setSubmitted(true);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="text-center py-6">
+        <div className="text-4xl mb-4">📬</div>
+        <h3 className="font-semibold text-lg text-gray-900 mb-2">
+          Request sent
+        </h3>
+        <p className="text-sm text-gray-500 mb-6">
+          Your keyholder has been notified. You'll hear back once they review
+          your request.
+        </p>
+        <button
+          onClick={onSuccess}
+          className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+        >
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  const currency = (n: number) =>
+    n.toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-900">
+          Request early unlock
+        </h3>
+        <p className="text-sm text-gray-500 mt-1">
+          {box?.name} · {currency((box?.balance ?? 0) / 100)} locked
+        </p>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <p className="text-xs text-amber-800">
+          Your keyholder will be notified and must approve this request before
+          your funds are unlocked.
+        </p>
+      </div>
+
+      {/* Reason */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          Why do you need early access? <span className="text-rose-500">*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Unexpected car repair, medical expense…"
+          rows={3}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+      </div>
+
+      {/* Reflection */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          Reflect on your decision{" "}
+          <span className="text-gray-400 font-normal">(optional)</span>
+        </label>
+        <textarea
+          value={reflection}
+          onChange={(e) => setReflection(e.target.value)}
+          placeholder="Why did you lock this money? Is this expense worth breaking that commitment?"
+          rows={3}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-emerald-500"
+        />
+        <p className="text-xs text-gray-400 mt-1">
+          This helps you and your keyholder make a more considered decision.
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !reason.trim()}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Sending…" : "Send request"}
         </button>
       </div>
     </div>

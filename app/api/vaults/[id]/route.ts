@@ -6,8 +6,9 @@ import { prisma } from "@/lib/db"; // ensure this exists; otherwise instantiate 
 
 export async function PATCH(
   req: Request,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,7 +21,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const vault = await prisma.vault.findFirst({
-    where: { id: params.id, userId: user.id },
+    where: { id: id, userId: user.id },
   });
   if (!vault)
     return NextResponse.json({ error: "Vault not found" }, { status: 404 });
