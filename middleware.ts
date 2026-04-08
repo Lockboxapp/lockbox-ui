@@ -16,11 +16,11 @@ export default withAuth(
     callbacks: {
       authorized: ({ token }) => !!token,
     },
-  }
+  },
 );
 
 export const config = {
   matcher: [
-    "/((?!signin|signup|api/auth|api/signup|api/keyholders|api/unlock-requests|_next|favicon.ico).*)",
+    "/((?!signin|signup|api/auth|api/signup|api/keyholders|/keyholder/accept|keyholder|api/unlock-requests|_next|favicon.ico).*)",
   ],
 };

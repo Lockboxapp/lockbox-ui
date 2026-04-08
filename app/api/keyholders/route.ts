@@ -1,14 +1,22 @@
 // ============================================================
 // app/api/keyholders/route.ts
+// GET  /api/keyholders — list keyholder relationships
 // POST /api/keyholders — invite a keyholder
 // ============================================================
 // SECURITY RULES:
-//   - User cannot add themselves as keyholder (checked against all emails)
-//   - inviteToken is generated server-side, sent only to keyholder email
+//   - User cannot add themselves as keyholder
+//   - inviteToken generated server-side, sent only to keyholder
 //   - Email always stored lowercase
 // ============================================================
 
-// GET — return all keyholder relationships for the authenticated user
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { sendKeyholderInvite } from "@/lib/email";
+
+// ── GET — list all keyholder relationships ──────────────────
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -32,11 +40,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { sendKeyholderInvite } from "@/lib/email";
+// ── POST — invite a keyholder ───────────────────────────────
 
 export async function POST(req: NextRequest) {
   try {
@@ -54,7 +58,7 @@ export async function POST(req: NextRequest) {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Fetch user and all their associated emails
+    // Fetch user and all associated emails
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
       include: { accounts: true },
@@ -75,7 +79,6 @@ export async function POST(req: NextRequest) {
       .map((e) => e!.toLowerCase());
 
     if (userEmails.includes(normalizedEmail)) {
-      // Log the blocked attempt
       await prisma.auditEvent.create({
         data: {
           actor: "USER",
@@ -84,14 +87,13 @@ export async function POST(req: NextRequest) {
           metadata: JSON.stringify({ attemptedEmail: normalizedEmail }),
         },
       });
-
       return NextResponse.json(
         { error: "You cannot add yourself as your own keyholder" },
         { status: 400 },
       );
     }
 
-    // Check for existing active relationship with this email
+    // Check for existing active or pending relationship
     const existingProfile = await prisma.keyholderProfile.findUnique({
       where: { email: normalizedEmail },
     });
@@ -171,10 +173,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(
-      {
-        ok: true,
-        relationshipId: relationship.id,
-      },
+      { ok: true, relationshipId: relationship.id },
       { status: 201 },
     );
   } catch (error) {
