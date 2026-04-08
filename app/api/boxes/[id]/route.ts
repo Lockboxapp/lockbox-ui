@@ -16,7 +16,7 @@ import { BOX_STATUS } from "@/lib/types";
 // ------------------------------------------------------------
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -27,7 +27,6 @@ export async function GET(
     const box = await prisma.box.findUnique({
       where: { id: params.id },
       include: {
-        keyholder: true,
         unlockRequests: {
           orderBy: { requestedAt: "desc" },
         },
@@ -48,7 +47,7 @@ export async function GET(
     console.error("[GET /api/boxes/:id]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -65,7 +64,7 @@ export async function GET(
 // ------------------------------------------------------------
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -99,14 +98,14 @@ export async function PATCH(
       ) {
         return NextResponse.json(
           { error: `Cannot lock a box with status: ${box.status}` },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
       if (!lockUntil) {
         return NextResponse.json(
           { error: "lockUntil is required to lock a box" },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -116,7 +115,7 @@ export async function PATCH(
       if (lockDate <= new Date()) {
         return NextResponse.json(
           { error: "lockUntil must be a future date" },
-          { status: 400 }
+          { status: 400 },
         );
       }
 
@@ -126,7 +125,6 @@ export async function PATCH(
           status: BOX_STATUS.LOCKED,
           lockUntil: lockDate,
         },
-        include: { keyholder: true },
       });
 
       return NextResponse.json(lockedBox);
@@ -151,7 +149,7 @@ export async function PATCH(
     console.error("[PATCH /api/boxes/:id]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -162,7 +160,7 @@ export async function PATCH(
 // ------------------------------------------------------------
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: { id: string } },
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -186,7 +184,7 @@ export async function DELETE(
     if (box.status === BOX_STATUS.LOCKED) {
       return NextResponse.json(
         { error: "Cannot close a locked box. Submit an unlock request first." },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -200,7 +198,7 @@ export async function DELETE(
     console.error("[DELETE /api/boxes/:id]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

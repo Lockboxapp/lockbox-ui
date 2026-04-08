@@ -23,6 +23,32 @@ datasource db {
 }
 
 // ------------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------------
+
+enum KeyholderScopeType {
+  ALL
+  SELECTED
+}
+
+enum KeyholderRelationshipStatus {
+  PENDING
+  ACTIVE
+  PAUSED
+  REVOKED
+}
+
+enum KeyholderOTPPurpose {
+  INVITE
+  APPROVAL
+}
+
+enum KeyholderSessionPurpose {
+  INVITE
+  APPROVAL
+}
+
+// ------------------------------------------------------------
 // 2. NEXTAUTH CORE MODELS
 // ------------------------------------------------------------
 
@@ -35,19 +61,20 @@ model User {
   passwordHash  String?
 
   // Relations
-  accounts     Account[]
-  sessions     Session[]
-  preferences  Preferences?
-  vaults       Vault[]
-  boxes        Box[]
-  transactions Transaction[]
-  categories   Category[]
+  accounts               Account[]
+  sessions               Session[]
+  keyholderRelationships KeyholderRelationship[]
+  preferences            Preferences?
+  vaults                 Vault[]
+  boxes                  Box[]
+  transactions           Transaction[]
+  categories             Category[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Unit BaaS
-unitCustomerId String? // Unit customer ID assigned after KYC
+  unitCustomerId String? // Unit customer ID assigned after KYC
 }
 
 model Account {
@@ -131,8 +158,8 @@ model Vault {
 // Ledger of all money movement across vaults and boxes
 model Transaction {
   id          String   @id @default(cuid())
-  type        String   // DEPOSIT | WITHDRAWAL | TRANSFER | LOCK | UNLOCK
-  amount      Int      // stored in cents
+  type        String // DEPOSIT | WITHDRAWAL | TRANSFER | LOCK | UNLOCK
+  amount      Int // stored in cents
   description String?
   postedAt    DateTime @default(now())
 
@@ -174,15 +201,15 @@ model Box {
   name         String
   description  String?
   status       String    @default("CREATED") // see status flow above
-  balance      Int       @default(0)          // stored in cents
-  targetAmount Int?                            // stored in cents, optional goal
-  lockUntil    DateTime?                       // null until box is locked
+  balance      Int       @default(0) // stored in cents
+  targetAmount Int? // stored in cents, optional goal
+  lockUntil    DateTime? // null until box is locked
 
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
   // One optional keyholder per box — the core product differentiator
-  keyholder Keyholder?
+  keyholderScopes KeyholderRelationshipBox[]
 
   // All unlock attempts against this box
   unlockRequests UnlockRequest[]
@@ -193,47 +220,26 @@ model Box {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Unit BaaS
+  unitAccountId String? // Unit deposit account ID for this safe deposit box
+
   @@index([userId])
-
-// Unit BaaS
-unitAccountId String? // Unit deposit account ID for this safe deposit box
-
   @@index([status])
 }
 
 // Keyholder — trusted person who must approve early unlock requests
 // SECURITY: inviteToken is only for the initial invite email.
 // Never expose approvalToken (on UnlockRequest) to the box owner.
-model Keyholder {
-  id    String  @id @default(cuid())
-  boxId String  @unique
-  email String
-  name  String?
-
-  // True once the keyholder clicks accept in their invite email
-  accepted Boolean @default(false)
-
-  // Token sent in the keyholder invite email only
-  inviteToken String @unique @default(cuid())
-
-  box Box @relation(fields: [boxId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([email])
-  @@index([inviteToken])
-}
 
 // UnlockRequest — created when a user attempts to unlock before lockUntil
 // SECURITY: approvalToken is generated server-side and sent ONLY to the
 // keyholder. It must never be returned in any API response to the box owner.
 model UnlockRequest {
-  id         String    @id @default(cuid())
+  id         String  @id @default(cuid())
   boxId      String
-  reason     String    // user-provided reason for early unlock
-  reflection String?   // answer to reflection prompt shown before submitting
-  status     String    @default("PENDING") // PENDING | APPROVED | DENIED
+  reason     String // user-provided reason for early unlock
+  reflection String? // answer to reflection prompt shown before submitting
+  status     String  @default("PENDING") // PENDING | APPROVED | DENIED
 
   // Sent only to the keyholder — never exposed to the box owner under any circumstance
   approvalToken String @unique @default(cuid())
@@ -251,4 +257,115 @@ model UnlockRequest {
   @@index([boxId])
   @@index([approvalToken])
   @@index([status])
+}
+
+// ------------------------------------------------------------
+// 6. KEYHOLDER SYSTEM
+// ------------------------------------------------------------
+
+// Who the keyholder is as a person — separate from any relationship or box
+model KeyholderProfile {
+  id        String   @id @default(cuid())
+  email     String   @unique // always stored lowercase
+  name      String?
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  relationships KeyholderRelationship[]
+  otps          KeyholderOTP[]
+  sessions      KeyholderSession[]
+
+  @@index([email])
+}
+
+// The permission relationship between a LockBox user and a keyholder
+model KeyholderRelationship {
+  id              String                      @id @default(cuid())
+  userId          String
+  profileId       String
+  scopeType       KeyholderScopeType          @default(ALL)
+  status          KeyholderRelationshipStatus @default(PENDING)
+  inviteToken     String                      @unique @default(cuid())
+  inviteExpiresAt DateTime?
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  safetyMode      Boolean                     @default(false)
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  user    User                       @relation(fields: [userId], references: [id])
+  profile KeyholderProfile           @relation(fields: [profileId], references: [id])
+  boxes   KeyholderRelationshipBox[]
+
+  @@index([userId])
+  @@index([profileId])
+  @@index([userId, profileId])
+  @@index([inviteToken])
+  @@index([status])
+}
+
+// Join table — only populated when scopeType = SELECTED
+model KeyholderRelationshipBox {
+  id             String @id @default(cuid())
+  relationshipId String
+  boxId          String
+
+  relationship KeyholderRelationship @relation(fields: [relationshipId], references: [id])
+  box          Box                   @relation(fields: [boxId], references: [id])
+
+  @@unique([relationshipId, boxId])
+  @@index([relationshipId])
+  @@index([boxId])
+}
+
+// OTP for keyholder identity verification — code stored as bcrypt hash
+model KeyholderOTP {
+  id        String              @id @default(cuid())
+  email     String // always lowercase, delivery target
+  profileId String? // linked after profile exists
+  codeHash  String // bcrypt hash of 6-digit code — never store raw
+  token     String // the approvalToken or inviteToken this OTP is for
+  purpose   KeyholderOTPPurpose
+  expiresAt DateTime
+  used      Boolean             @default(false)
+  attempts  Int                 @default(0) // max 3 before lockout
+  createdAt DateTime            @default(now())
+
+  profile KeyholderProfile? @relation(fields: [profileId], references: [id])
+
+  @@index([email])
+  @@index([token])
+}
+
+// Short-lived verified session after OTP — grants access to approve/deny
+model KeyholderSession {
+  id           String                  @id @default(cuid())
+  email        String // always lowercase
+  profileId    String? // linked after profile exists
+  sessionToken String                  @unique @default(cuid())
+  sourceToken  String // the approvalToken or inviteToken
+  purpose      KeyholderSessionPurpose
+  expiresAt    DateTime
+  createdAt    DateTime                @default(now())
+
+  profile KeyholderProfile? @relation(fields: [profileId], references: [id])
+
+  @@index([email])
+  @@index([sessionToken])
+}
+
+// Audit log — every keyholder action must be recorded
+model AuditEvent {
+  id        String   @id @default(cuid())
+  actor     String // USER | KEYHOLDER | SYSTEM | ADMIN
+  actorId   String? // userId, profileId, or null for system
+  action    String // INVITE_SENT | OTP_SENT | OTP_VERIFIED | RELATIONSHIP_ACCEPTED | REQUEST_APPROVED | REQUEST_DENIED | SESSION_CREATED | SELF_KEYHOLDER_BLOCKED
+  targetId  String? // boxId, relationshipId, unlockRequestId
+  metadata  String? // JSON string with before/after state
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
 }

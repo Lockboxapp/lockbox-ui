@@ -18,13 +18,11 @@ export async function sendKeyholderInvite({
   keyholderEmail,
   keyholderName,
   ownerName,
-  boxName,
   inviteToken,
 }: {
   keyholderEmail: string;
   keyholderName?: string | null;
   ownerName?: string | null;
-  boxName: string;
   inviteToken: string;
 }) {
   const acceptUrl = `${BASE_URL}/keyholder/accept?token=${inviteToken}`;
@@ -39,10 +37,11 @@ export async function sendKeyholderInvite({
       <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
         <h2 style="color: #1a1a1a;">You've been invited</h2>
         <p>${greeting}</p>
-        <p><strong>${owner}</strong> has invited you to be the keyholder for their
-        LockBox called <strong>"${boxName}"</strong>.</p>
-        <p>As a keyholder, you'll receive requests if they try to unlock their box early.
-        You decide whether to approve or deny each request.</p>
+        <p><strong>${owner}</strong> has invited you to be their LockBox keyholder.</p>
+        <p>As a keyholder, you'll receive requests if they try to unlock their
+        savings early. You decide whether to approve or deny each request.</p>
+        <p>You cannot move or access their funds — you only approve or deny
+        unlock requests.</p>
         <a href="${acceptUrl}" style="
           display: inline-block;
           background: #b8952a;
@@ -54,7 +53,8 @@ export async function sendKeyholderInvite({
           margin: 16px 0;
         ">Accept Keyholder Role</a>
         <p style="color: #666; font-size: 13px;">
-          If you weren't expecting this, you can safely ignore this email.
+          This invite expires in 7 days. If you weren't expecting this,
+          you can safely ignore this email.
         </p>
       </div>
     `,

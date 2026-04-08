@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     if (!boxId || !reason) {
       return NextResponse.json(
         { error: "boxId and reason are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -38,7 +38,9 @@ export async function POST(req: NextRequest) {
     const box = await prisma.box.findUnique({
       where: { id: boxId },
       include: {
-        keyholder: true,
+        keyholderScopes: {
+          include: { relationship: { include: { profile: true } } },
+        },
         unlockRequests: {
           where: { status: UNLOCK_STATUS.PENDING },
           orderBy: { requestedAt: "desc" },
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (box.unlockRequests.length > 0) {
       return NextResponse.json(
         { error: "A pending unlock request already exists for this box" },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
@@ -76,14 +78,14 @@ export async function POST(req: NextRequest) {
 
     if (lastRequest?.cooldownUntil && lastRequest.cooldownUntil > new Date()) {
       const minutesLeft = Math.ceil(
-        (lastRequest.cooldownUntil.getTime() - Date.now()) / 1000 / 60
+        (lastRequest.cooldownUntil.getTime() - Date.now()) / 1000 / 60,
       );
       return NextResponse.json(
         {
           error: `Cooldown active. Try again in ${minutesLeft} minute(s).`,
           cooldownUntil: lastRequest.cooldownUntil,
         },
-        { status: 429 }
+        { status: 429 },
       );
     }
 
@@ -107,15 +109,42 @@ export async function POST(req: NextRequest) {
     });
 
     // Notify keyholder via email if one exists
-    if (box.keyholder?.accepted && box.keyholder.email) {
+    // Find active keyholder relationship for this box
+    const activeRelationship = await prisma.keyholderRelationship.findFirst({
+      where: {
+        userId: session.user.id,
+        status: "ACTIVE",
+        OR: [
+          { scopeType: "ALL" },
+          {
+            scopeType: "SELECTED",
+            boxes: { some: { boxId: boxId } },
+          },
+        ],
+      },
+      include: { profile: true },
+    });
+
+    if (activeRelationship) {
       await sendUnlockRequestToKeyholder({
-        keyholderEmail: box.keyholder.email,
-        keyholderName: box.keyholder.name,
+        keyholderEmail: activeRelationship.profile.email,
+        keyholderName: activeRelationship.profile.name,
         ownerName: session.user.name,
         boxName: box.name,
         reason,
         reflection,
         approvalToken: unlockRequest.approvalToken,
+      });
+
+      await prisma.auditEvent.create({
+        data: {
+          actor: "SYSTEM",
+          action: "OTP_SENT",
+          targetId: unlockRequest.id,
+          metadata: JSON.stringify({
+            keyholderEmail: activeRelationship.profile.email,
+          }),
+        },
       });
     }
     // The keyholder email should contain:
@@ -133,7 +162,7 @@ export async function POST(req: NextRequest) {
     console.error("[POST /api/unlock-requests]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

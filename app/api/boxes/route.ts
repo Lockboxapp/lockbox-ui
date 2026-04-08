@@ -27,7 +27,6 @@ export async function GET(req: NextRequest) {
     const boxes = await prisma.box.findMany({
       where: { userId: session.user.id },
       include: {
-        keyholder: true,
         unlockRequests: {
           where: { status: "PENDING" },
           orderBy: { requestedAt: "desc" },
@@ -42,7 +41,7 @@ export async function GET(req: NextRequest) {
     console.error("[GET /api/boxes]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -108,7 +107,7 @@ export async function POST(req: NextRequest) {
         // Don't fail box creation if Unit fails — log and continue
         console.error(
           "[POST /api/boxes] Unit account creation failed:",
-          unitError
+          unitError,
         );
       }
     }
@@ -118,7 +117,7 @@ export async function POST(req: NextRequest) {
     console.error("[POST /api/boxes]", error);
     return NextResponse.json(
       { error: "Internal server error" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
