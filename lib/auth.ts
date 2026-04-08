@@ -58,4 +58,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
   // Make sure you have NEXTAUTH_URL and NEXTAUTH_SECRET in .env.local
+  pages: {
+    signIn: "/signin",
+  },
 };
