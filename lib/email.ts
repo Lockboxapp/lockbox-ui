@@ -83,8 +83,8 @@ export async function sendUnlockRequestToKeyholder({
   reflection?: string | null;
   approvalToken: string;
 }) {
-  const approveUrl = `${BASE_URL}/keyholder/${approvalToken}`;
-  const denyUrl = `${BASE_URL}/keyholder/${approvalToken}`;
+  const approveUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
+  const denyUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
   const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
   const owner = ownerName ?? "Your friend";
 

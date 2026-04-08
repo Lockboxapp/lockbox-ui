@@ -1,16 +1,13 @@
 // ============================================================
-// app/keyholder/[token]/page.tsx
-// Standalone keyholder approval page — no auth, no shell
-// 3-step flow: email → OTP → approve/deny
-// sessionToken held in React state only — never localStorage
+// app/keyholder/page.tsx
+// Keyholder approval page — uses ?token= query param
+// No auth required — token IS the auth
 // ============================================================
 
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-
-// ── Types ──────────────────────────────────────────────────
+import { useEffect, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 type RequestData = {
   id: string;
@@ -41,8 +38,6 @@ type PageState =
   | "success_denied"
   | "otp_locked";
 
-// ── Helpers ────────────────────────────────────────────────
-
 const currency = (n: number) =>
   n.toLocaleString(undefined, {
     style: "currency",
@@ -50,34 +45,24 @@ const currency = (n: number) =>
     maximumFractionDigits: 0,
   });
 
-// ── Main Component ─────────────────────────────────────────
-
-export default function KeyholderPage() {
-  const params = useParams();
-  const token =
-    typeof params?.token === "string"
-      ? params.token
-      : Array.isArray(params?.token)
-        ? params.token[0]
-        : null;
+function KeyholderPageInner() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
 
   const [pageState, setPageState] = useState<PageState>("loading");
   const [data, setData] = useState<RequestData | null>(null);
-
-  // Auth state
   const [email, setEmail] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [sessionToken, setSessionToken] = useState<string | null>(null);
-
-  // UI state
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // ── Fetch request details on mount ──
   useEffect(() => {
-    console.log("token from useParams:", token);
-    if (!token) return;
+    if (!token) {
+      setPageState("invalid");
+      return;
+    }
     fetch(`/api/unlock-requests/${token}`)
       .then(async (res) => {
         if (!res.ok) {
@@ -97,7 +82,6 @@ export default function KeyholderPage() {
       .catch(() => setPageState("invalid"));
   }, [token]);
 
-  // ── Resend cooldown timer ──
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const interval = setInterval(() => {
@@ -112,13 +96,11 @@ export default function KeyholderPage() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
-  // ── Step 1: Send OTP ──
   async function handleSendOTP(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || loading) return;
     setLoading(true);
     setError("");
-
     try {
       const res = await fetch("/api/keyholder-auth/send-otp", {
         method: "POST",
@@ -129,18 +111,13 @@ export default function KeyholderPage() {
           purpose: "APPROVAL",
         }),
       });
-
       const json = await res.json();
-
       if (res.status === 429) {
         setResendCooldown(json.retryAfter ?? 60);
         setError(json.message ?? "Please wait before requesting another code.");
         setLoading(false);
         return;
       }
-
-      // Always advance to OTP step regardless of match
-      // Generic UX — don't reveal whether email matched
       setPageState("otp_step");
     } catch {
       setError("Something went wrong. Please try again.");
@@ -149,13 +126,11 @@ export default function KeyholderPage() {
     }
   }
 
-  // ── Step 1b: Resend OTP ──
   async function handleResendOTP() {
     if (resendCooldown > 0 || loading) return;
     setLoading(true);
     setError("");
     setOtpCode("");
-
     try {
       const res = await fetch("/api/keyholder-auth/send-otp", {
         method: "POST",
@@ -166,27 +141,23 @@ export default function KeyholderPage() {
           purpose: "APPROVAL",
         }),
       });
-
       const json = await res.json();
-
       if (res.status === 429) {
         setResendCooldown(json.retryAfter ?? 60);
-        setError(json.message ?? "Please wait before requesting another code.");
+        setError(json.message ?? "Please wait.");
       }
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError("Something went wrong.");
     } finally {
       setLoading(false);
     }
   }
 
-  // ── Step 2: Verify OTP ──
   async function handleVerifyOTP(e: React.FormEvent) {
     e.preventDefault();
     if (!otpCode.trim() || loading) return;
     setLoading(true);
     setError("");
-
     try {
       const res = await fetch("/api/keyholder-auth/verify-otp", {
         method: "POST",
@@ -198,21 +169,16 @@ export default function KeyholderPage() {
           code: otpCode.trim(),
         }),
       });
-
       const json = await res.json();
-
       if (res.status === 429) {
         setPageState("otp_locked");
         return;
       }
-
       if (!res.ok) {
         setError(json.error ?? "Invalid code. Please try again.");
         setLoading(false);
         return;
       }
-
-      // Store session token in React state only — never localStorage
       setSessionToken(json.sessionToken);
       setPageState("valid");
     } catch {
@@ -222,12 +188,10 @@ export default function KeyholderPage() {
     }
   }
 
-  // ── Step 3: Approve or Deny ──
   async function handleAction(action: "approve" | "deny") {
     if (!sessionToken || loading) return;
     setLoading(true);
     setError("");
-
     try {
       const res = await fetch(`/api/unlock-requests/${token}/${action}`, {
         method: "POST",
@@ -236,7 +200,6 @@ export default function KeyholderPage() {
           "x-keyholder-session": sessionToken,
         },
       });
-
       if (res.status === 401) {
         setError(
           "Your session has expired. Please verify your identity again.",
@@ -246,14 +209,12 @@ export default function KeyholderPage() {
         setLoading(false);
         return;
       }
-
       if (!res.ok) {
         const json = await res.json();
         setError(json.error ?? "Something went wrong.");
         setLoading(false);
         return;
       }
-
       setPageState(
         action === "approve" ? "success_approved" : "success_denied",
       );
@@ -264,17 +225,14 @@ export default function KeyholderPage() {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────
-
-  if (pageState === "loading") {
+  if (pageState === "loading")
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-sm text-gray-500">Loading…</div>
       </div>
     );
-  }
 
-  if (pageState === "invalid") {
+  if (pageState === "invalid")
     return (
       <Shell>
         <StatusCard
@@ -284,7 +242,6 @@ export default function KeyholderPage() {
         />
       </Shell>
     );
-  }
 
   if (pageState === "already_handled" && data) {
     const wasApproved = data.status === "APPROVED";
@@ -299,7 +256,7 @@ export default function KeyholderPage() {
     );
   }
 
-  if (pageState === "otp_locked") {
+  if (pageState === "otp_locked")
     return (
       <Shell>
         <StatusCard
@@ -319,9 +276,8 @@ export default function KeyholderPage() {
         </button>
       </Shell>
     );
-  }
 
-  if (pageState === "success_approved" && data) {
+  if (pageState === "success_approved" && data)
     return (
       <Shell>
         <StatusCard
@@ -331,9 +287,8 @@ export default function KeyholderPage() {
         />
       </Shell>
     );
-  }
 
-  if (pageState === "success_denied" && data) {
+  if (pageState === "success_denied" && data)
     return (
       <Shell>
         <StatusCard
@@ -343,10 +298,8 @@ export default function KeyholderPage() {
         />
       </Shell>
     );
-  }
 
-  // ── Email step ──
-  if (pageState === "email_step") {
+  if (pageState === "email_step")
     return (
       <Shell>
         <div className="text-center mb-6">
@@ -358,7 +311,6 @@ export default function KeyholderPage() {
             Enter the email address you were invited with to continue.
           </p>
         </div>
-
         <form onSubmit={handleSendOTP} className="space-y-4">
           <input
             type="email"
@@ -369,9 +321,7 @@ export default function KeyholderPage() {
             autoFocus
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
-
           {error && <p className="text-sm text-rose-600">{error}</p>}
-
           <button
             type="submit"
             disabled={loading || !email.trim()}
@@ -380,16 +330,13 @@ export default function KeyholderPage() {
             {loading ? "Sending…" : "Send verification code"}
           </button>
         </form>
-
         <p className="text-xs text-gray-400 text-center mt-6">
           We'll send a 6-digit code to your email to verify your identity.
         </p>
       </Shell>
     );
-  }
 
-  // ── OTP step ──
-  if (pageState === "otp_step") {
+  if (pageState === "otp_step")
     return (
       <Shell>
         <div className="text-center mb-6">
@@ -398,11 +345,10 @@ export default function KeyholderPage() {
             Check your email
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            We sent a 6-digit code to <strong>{email}</strong>.<br />
-            Enter it below to continue.
+            We sent a 6-digit code to <strong>{email}</strong>. Enter it below
+            to continue.
           </p>
         </div>
-
         <form onSubmit={handleVerifyOTP} className="space-y-4">
           <input
             type="text"
@@ -417,11 +363,9 @@ export default function KeyholderPage() {
             inputMode="numeric"
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-center tracking-widest text-lg font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
-
           {error && (
             <p className="text-sm text-rose-600 text-center">{error}</p>
           )}
-
           <button
             type="submit"
             disabled={loading || otpCode.length !== 6}
@@ -430,7 +374,6 @@ export default function KeyholderPage() {
             {loading ? "Verifying…" : "Verify code"}
           </button>
         </form>
-
         <div className="text-center mt-4">
           <button
             onClick={handleResendOTP}
@@ -442,7 +385,6 @@ export default function KeyholderPage() {
               : "Resend code"}
           </button>
         </div>
-
         <button
           onClick={() => {
             setPageState("email_step");
@@ -455,9 +397,7 @@ export default function KeyholderPage() {
         </button>
       </Shell>
     );
-  }
 
-  // ── Valid — show approve/deny UI ──
   if (pageState === "valid" && data) {
     const ownerName = data.owner.name || data.owner.email;
     const dueDate = data.box.lockUntil
@@ -467,7 +407,6 @@ export default function KeyholderPage() {
           year: "numeric",
         })
       : null;
-
     return (
       <Shell>
         <div className="text-center mb-6">
@@ -480,7 +419,6 @@ export default function KeyholderPage() {
             unlock
           </p>
         </div>
-
         <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 mb-6">
           <Row label="Safe Deposit Box" value={data.box.name} />
           <Row label="Balance" value={currency(data.box.balance)} />
@@ -494,7 +432,6 @@ export default function KeyholderPage() {
             value={new Date(data.requestedAt).toLocaleString()}
           />
         </div>
-
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <p className="text-xs text-amber-800 leading-relaxed">
             <strong>If you approve:</strong> The funds in {data.box.name} will
@@ -505,11 +442,9 @@ export default function KeyholderPage() {
             request again in 24 hours.
           </p>
         </div>
-
         {error && (
           <p className="text-sm text-rose-600 text-center mb-4">{error}</p>
         )}
-
         <div className="flex flex-col gap-3">
           <button
             onClick={() => handleAction("approve")}
@@ -526,7 +461,6 @@ export default function KeyholderPage() {
             {loading ? "Processing…" : "🔒 Deny unlock"}
           </button>
         </div>
-
         <p className="text-xs text-gray-400 text-center mt-6">
           You are acting as a keyholder for {ownerName}'s LockBox account. You
           cannot move or access their funds — only approve or deny this request.
@@ -538,7 +472,6 @@ export default function KeyholderPage() {
   return null;
 }
 
-// ── Shell ──────────────────────────────────────────────────
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-start justify-center py-12 px-4">
@@ -553,7 +486,6 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── StatusCard ─────────────────────────────────────────────
 function StatusCard({
   icon,
   title,
@@ -572,12 +504,25 @@ function StatusCard({
   );
 }
 
-// ── Row ────────────────────────────────────────────────────
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="px-4 py-3 flex items-start justify-between gap-4">
       <span className="text-xs text-gray-500 flex-shrink-0">{label}</span>
       <span className="text-sm text-gray-900 text-right">{value}</span>
     </div>
+  );
+}
+
+export default function KeyholderPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-sm text-gray-400">Loading…</div>
+        </div>
+      }
+    >
+      <KeyholderPageInner />
+    </Suspense>
   );
 }
