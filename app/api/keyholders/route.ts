@@ -8,6 +8,30 @@
 //   - Email always stored lowercase
 // ============================================================
 
+// GET — return all keyholder relationships for the authenticated user
+export async function GET(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const relationships = await prisma.keyholderRelationship.findMany({
+      where: { userId: session.user.id },
+      include: { profile: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return NextResponse.json(relationships);
+  } catch (error) {
+    console.error("[GET /api/keyholders]", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
+}
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";

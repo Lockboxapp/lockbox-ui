@@ -143,26 +143,40 @@ export default function ShellLayout({
             {/* Items */}
             <div className="flex-1 overflow-y-auto py-2">
               {[
-                { icon: "🔗", label: "Connect Bank", sub: "Not connected" },
+                {
+                  icon: "🔗",
+                  label: "Connect Bank",
+                  sub: "Not connected",
+                  href: null,
+                },
                 {
                   icon: "👥",
                   label: "Manage Accountability Partners",
-                  sub: "0 partners",
+                  sub: "Keyholders",
+                  href: "/keyholders",
                 },
                 {
                   icon: "💳",
                   label: "Manage Budgets & Savings",
                   sub: "Split: 50/30/20",
+                  href: null,
                 },
-                { icon: "🌐", label: "Language", sub: "English" },
+                { icon: "🌐", label: "Language", sub: "English", href: null },
                 {
                   icon: "❓",
                   label: "Help & Feedback",
                   sub: "Report a bug, request a feature",
+                  href: null,
                 },
               ].map((item) => (
                 <button
                   key={item.label}
+                  onClick={() => {
+                    if (item.href) {
+                      setSettingsOpen(false);
+                      router.push(item.href);
+                    }
+                  }}
                   className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 text-left"
                 >
                   <span className="text-lg">{item.icon}</span>
