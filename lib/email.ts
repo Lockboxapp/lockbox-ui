@@ -180,3 +180,54 @@ export async function sendUnlockResult({
     `,
   });
 }
+// ------------------------------------------------------------
+// OTP verification email — sent to keyholder before approve/deny
+// Code only — no links, no tokens
+// ------------------------------------------------------------
+export async function sendKeyholderOTP({
+  keyholderEmail,
+  keyholderName,
+  code,
+}: {
+  keyholderEmail: string;
+  keyholderName?: string | null;
+  code: string;
+}) {
+  const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
+
+  await resend.emails.send({
+    from: FROM,
+    to: keyholderEmail,
+    subject: `Your LockBox verification code`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2 style="color: #1a1a1a;">Your verification code</h2>
+        <p>${greeting}</p>
+        <p>Use the code below to verify your identity and review the unlock request.</p>
+        <div style="
+          background: #f5f5f5;
+          border-radius: 8px;
+          padding: 24px;
+          text-align: center;
+          margin: 24px 0;
+        ">
+          <span style="
+            font-size: 36px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            color: #1a1a1a;
+            font-family: monospace;
+          ">${code}</span>
+        </div>
+        <p style="color: #666; font-size: 13px;">
+          This code expires in 10 minutes. Do not share it with anyone,
+          including the person who sent the unlock request.
+        </p>
+        <p style="color: #666; font-size: 13px;">
+          If you did not request this code, ignore this email.
+          The unlock request will remain pending.
+        </p>
+      </div>
+    `,
+  });
+}
