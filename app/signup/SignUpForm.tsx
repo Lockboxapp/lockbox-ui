@@ -34,12 +34,13 @@ export default function SignUpPage() {
         <h1 className="text-xl font-semibold mb-4">Create account</h1>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div>
-            <label className="text-sm">Name</label>
+            <label className="text-sm">Full name</label>
             <input
               className="mt-1 w-full rounded-xl border px-3 py-2 outline-none"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Optional"
+              placeholder="Your Full Name"
+              required
             />
           </div>
           <div>
@@ -64,7 +65,9 @@ export default function SignUpPage() {
             />
           </div>
           {error && <div className="text-sm text-rose-600">{error}</div>}
-          {ok && <div className="text-sm text-emerald-700">Account created!</div>}
+          {ok && (
+            <div className="text-sm text-emerald-700">Account created!</div>
+          )}
           <button
             type="submit"
             className="w-full py-3 rounded-xl bg-emerald-600 text-white"
@@ -73,7 +76,10 @@ export default function SignUpPage() {
           </button>
         </form>
         <p className="text-sm text-gray-500 mt-4">
-          Have an account? <a className="text-emerald-700 underline" href="/signin">Sign in</a>
+          Have an account?{" "}
+          <a className="text-emerald-700 underline" href="/signin">
+            Sign in
+          </a>
         </p>
       </div>
     </main>
