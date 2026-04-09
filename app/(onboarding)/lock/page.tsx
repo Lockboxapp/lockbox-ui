@@ -138,7 +138,7 @@ function LockPageInner() {
             />
           ))}
         </div>
-        <p className="text-center text-xs text-gray-400 mt-1">Step 4 of 4</p>
+        <p className="text-center text-xs text-gray-400 mt-1"></p>
       </div>
     </div>
   );

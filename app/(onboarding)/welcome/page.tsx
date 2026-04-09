@@ -82,7 +82,7 @@ export default function WelcomePage() {
             />
           ))}
         </div>
-        <p className="text-center text-xs text-gray-400">Step 1 of 4</p>
+        <p className="text-center text-xs text-gray-400"></p>
       </div>
     </div>
   );
