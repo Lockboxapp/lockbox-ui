@@ -16,6 +16,7 @@ type Box = {
   lockUntil: string | null;
   status: string;
   unitAccountId: string | null;
+  lockType: string;
 };
 
 function toVaultShape(box: Box) {
@@ -35,6 +36,7 @@ function toVaultShape(box: Box) {
         )
       : null,
     isLocked: box.status === "LOCKED" || box.status === "UNLOCK_PENDING",
+    lockType: box.lockType ?? "SOFT",
   };
 }
 
@@ -52,6 +54,9 @@ export default function VaultsPage() {
   const [unlockModal, setUnlockModal] = useState<null | { vaultId: string }>(
     null,
   );
+  const [softUnlockModal, setSoftUnlockModal] = useState<null | {
+    vaultId: string;
+  }>(null);
   const [newVaultOpen, setNewVaultOpen] = useState(false);
 
   const fetchBoxes = useCallback(async () => {
@@ -87,6 +92,7 @@ export default function VaultsPage() {
         setAddFundsModal={setAddFundsModal}
         setLockModal={setLockModal}
         setUnlockModal={setUnlockModal}
+        setSoftUnlockModal={setSoftUnlockModal}
       />
 
       {/* Create box modal */}
@@ -141,6 +147,20 @@ export default function VaultsPage() {
             onClose={() => setUnlockModal(null)}
             onSuccess={() => {
               setUnlockModal(null);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
+
+      {/* Soft unlock confirmation modal */}
+      {softUnlockModal && (
+        <ModalSheet onClose={() => setSoftUnlockModal(null)}>
+          <SoftUnlockForm
+            box={getBox(softUnlockModal.vaultId) ?? null}
+            onClose={() => setSoftUnlockModal(null)}
+            onSuccess={() => {
+              setSoftUnlockModal(null);
               fetchBoxes();
             }}
           />
@@ -550,6 +570,91 @@ function UnlockRequestForm({
           className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
         >
           {loading ? "Sending…" : "Send request"}
+        </button>
+      </div>
+    </div>
+  );
+}
+// ── Soft Unlock Form ───────────────────────────────────────
+
+function SoftUnlockForm({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleUnlock() {
+    if (!box) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unlock" }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        setError(d.error ?? "Something went wrong.");
+        setLoading(false);
+        return;
+      }
+      onSuccess();
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
+    }
+  }
+
+  const currency = (n: number) =>
+    n.toLocaleString(undefined, {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-900">
+          Unlock this box?
+        </h3>
+        <p className="text-sm text-gray-500 mt-1">
+          {box?.name} · {currency((box?.balance ?? 0) / 100)} saved
+        </p>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <p className="text-sm text-amber-800 leading-relaxed">
+          You set this money aside for a reason. Unlocking it early means it's
+          available to spend.
+        </p>
+        <p className="text-xs text-amber-700 mt-2 italic">
+          "Stay consistent." — The Banker
+        </p>
+      </div>
+
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+        >
+          Keep it locked
+        </button>
+        <button
+          onClick={handleUnlock}
+          disabled={loading}
+          className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Unlocking…" : "Unlock anyway"}
         </button>
       </div>
     </div>

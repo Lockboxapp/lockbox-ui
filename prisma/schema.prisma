@@ -48,6 +48,11 @@ enum KeyholderSessionPurpose {
   APPROVAL
 }
 
+enum LockType {
+  HARD
+  SOFT
+  KEYHOLDER
+}
 // ------------------------------------------------------------
 // 2. NEXTAUTH CORE MODELS
 // ------------------------------------------------------------
@@ -201,6 +206,7 @@ model Box {
   name         String
   description  String?
   status       String    @default("CREATED") // see status flow above
+  lockType   LockType  @default(SOFT)
   balance      Int       @default(0) // stored in cents
   targetAmount Int? // stored in cents, optional goal
   lockUntil    DateTime? // null until box is locked

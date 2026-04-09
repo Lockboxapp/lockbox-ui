@@ -87,7 +87,8 @@ export async function PATCH(
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, action, lockUntil } = body;
+    const { name, description, targetAmount, action, lockUntil, lockType } =
+      body;
 
     // --------------------------------------------------------
     // LOCK ACTION — server enforces all lock rules
@@ -131,10 +132,35 @@ export async function PATCH(
 
       return NextResponse.json(lockedBox);
     }
+    // --------------------------------------------------------
+    // UNLOCK ACTION — for SOFT boxes only
+    // --------------------------------------------------------
+    if (action === "unlock") {
+      if (box.lockType !== "SOFT") {
+        return NextResponse.json(
+          {
+            error:
+              "Only SOFT boxes can be self-unlocked. Submit an unlock request instead.",
+          },
+          { status: 400 },
+        );
+      }
 
+      const unlockedBox = await prisma.box.update({
+        where: { id },
+        data: {
+          status: "CREATED",
+          lockUntil: null,
+        },
+      });
+
+      return NextResponse.json(unlockedBox);
+    }
     // --------------------------------------------------------
     // GENERAL UPDATE — name, description, targetAmount
     // --------------------------------------------------------
+    const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
+
     const updatedBox = await prisma.box.update({
       where: { id: id },
       data: {
@@ -143,6 +169,7 @@ export async function PATCH(
         ...(targetAmount !== undefined && {
           targetAmount: targetAmount ? Math.round(targetAmount * 100) : null,
         }),
+        ...(lockType && validLockTypes.includes(lockType) && { lockType }),
       },
     });
 
@@ -184,9 +211,20 @@ export async function DELETE(
     }
 
     // Cannot close a locked box — must go through unlock flow first
-    if (box.status === BOX_STATUS.LOCKED) {
+    if (
+      box.status === BOX_STATUS.LOCKED ||
+      box.status === BOX_STATUS.UNLOCK_PENDING
+    ) {
       return NextResponse.json(
-        { error: "Cannot close a locked box. Submit an unlock request first." },
+        {
+          error: "Cannot close a locked box.",
+          locked: true,
+          lockType: box.lockType,
+          message:
+            box.lockType === "KEYHOLDER"
+              ? "Your keyholder must approve an unlock before you can close this box."
+              : "Submit an unlock request before closing this box.",
+        },
         { status: 400 },
       );
     }

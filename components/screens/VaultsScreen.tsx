@@ -13,6 +13,7 @@ type Vault = {
   saved: number;
   dueDays: number | null;
   isLocked: boolean;
+  lockType?: string;
 };
 
 type Props = {
@@ -28,6 +29,9 @@ type Props = {
     React.SetStateAction<null | { vaultId: string }>
   >;
   setUnlockModal: React.Dispatch<
+    React.SetStateAction<null | { vaultId: string }>
+  >;
+  setSoftUnlockModal: React.Dispatch<
     React.SetStateAction<null | { vaultId: string }>
   >;
 };
@@ -59,6 +63,7 @@ export default function VaultsScreen({
   setAddFundsModal,
   setLockModal,
   setUnlockModal,
+  setSoftUnlockModal,
 }: Props) {
   // ✨ gate header action based on list state
   const hasVaults = !vaultsLoading && !vaultsError && vaults.length > 0;
@@ -173,8 +178,15 @@ export default function VaultsScreen({
                         damping: 18,
                       }}
                       onClick={() => {
-                        if (v.isLocked) setUnlockModal({ vaultId: v.id });
-                        else setLockModal({ vaultId: v.id });
+                        if (v.isLocked) {
+                          if (v.lockType === "SOFT") {
+                            setSoftUnlockModal({ vaultId: v.id });
+                          } else {
+                            setUnlockModal({ vaultId: v.id });
+                          }
+                        } else {
+                          setLockModal({ vaultId: v.id });
+                        }
                       }}
                       className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
                       aria-label={

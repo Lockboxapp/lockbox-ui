@@ -39,12 +39,34 @@ function LockPageInner() {
   const [loading, setLoading] = useState(false);
 
   async function handleContinue() {
-    if (!selected) return;
+    if (!selected || !boxId) return;
     setLoading(true);
 
-    // If keyholder selected, redirect to keyholders page after dashboard
-    // Otherwise go straight to dashboard
-    router.push("/");
+    // Map selection to lockType enum
+    const lockTypeMap: Record<string, string> = {
+      locked: "HARD",
+      emergency: "SOFT",
+      keyholder: "KEYHOLDER",
+    };
+
+    const lockType = lockTypeMap[selected] ?? "SOFT";
+
+    try {
+      await fetch(`/api/boxes/${boxId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lockType }),
+      });
+    } catch {
+      // Non-blocking — still redirect to dashboard
+    }
+
+    // If keyholder selected, redirect to keyholders page
+    if (selected === "keyholder") {
+      router.push("/keyholders");
+    } else {
+      router.push("/");
+    }
   }
 
   return (
