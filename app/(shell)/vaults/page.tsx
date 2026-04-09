@@ -223,8 +223,9 @@ function CreateBoxForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          targetAmount: target ? Math.round(Number(target) * 100) : undefined,
+          targetAmount: target ? Number(target) : undefined,
           lockUntil: lockUntil ? new Date(lockUntil).toISOString() : undefined,
+          lockType,
         }),
       });
       if (!res.ok) {
@@ -238,58 +239,6 @@ function CreateBoxForm({
       setLoading(false);
     }
   }
-
-  {
-    /* Lock type selector */
-  }
-  <div>
-    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-      Protection level
-    </label>
-    <div className="space-y-2">
-      {[
-        {
-          id: "SOFT",
-          icon: "🛡️",
-          label: "Flexible",
-          desc: "You can unlock with a confirmation",
-        },
-        {
-          id: "HARD",
-          icon: "🔒",
-          label: "Fully locked",
-          desc: "No withdrawals until you unlock",
-        },
-        {
-          id: "KEYHOLDER",
-          icon: "👤",
-          label: "Keyholder required",
-          desc: "Someone you trust must approve",
-        },
-      ].map((opt) => (
-        <button
-          key={opt.id}
-          type="button"
-          onClick={() => setLockType(opt.id)}
-          className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-            lockType === opt.id
-              ? "border-emerald-600 bg-emerald-50"
-              : "border-gray-100"
-          }`}
-        >
-          <span>{opt.icon}</span>
-          <div>
-            <div
-              className={`text-sm font-medium ${lockType === opt.id ? "text-emerald-700" : "text-gray-900"}`}
-            >
-              {opt.label}
-            </div>
-            <div className="text-xs text-gray-500">{opt.desc}</div>
-          </div>
-        </button>
-      ))}
-    </div>
-  </div>;
 
   return (
     <div className="space-y-4">
@@ -312,6 +261,53 @@ function CreateBoxForm({
         value={lockUntil}
         onChange={(e) => setLockUntil(e.target.value)}
       />
+      {/* Lock type */}
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+          Protection level
+        </label>
+        {[
+          {
+            id: "SOFT",
+            icon: "🛡️",
+            label: "Flexible",
+            desc: "Unlock with a confirmation",
+          },
+          {
+            id: "HARD",
+            icon: "🔒",
+            label: "Fully locked",
+            desc: "No withdrawals until you unlock",
+          },
+          {
+            id: "KEYHOLDER",
+            icon: "👤",
+            label: "Keyholder required",
+            desc: "Someone you trust must approve",
+          },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setLockType(opt.id)}
+            className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+              lockType === opt.id
+                ? "border-emerald-600 bg-emerald-50"
+                : "border-gray-100"
+            }`}
+          >
+            <span>{opt.icon}</span>
+            <div>
+              <div
+                className={`text-sm font-medium ${lockType === opt.id ? "text-emerald-700" : "text-gray-900"}`}
+              >
+                {opt.label}
+              </div>
+              <div className="text-xs text-gray-500">{opt.desc}</div>
+            </div>
+          </button>
+        ))}
+      </div>
       {error && <p className="text-rose-600 text-sm">{error}</p>}
       <div className="flex gap-3">
         <button
@@ -414,6 +410,7 @@ function LockForm({
   const [lockUntil, setLockUntil] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [lockType, setLockType] = useState("SOFT");
 
   async function handleSubmit() {
     if (!lockUntil) {
@@ -432,6 +429,7 @@ function LockForm({
         body: JSON.stringify({
           action: "lock",
           lockUntil: new Date(lockUntil).toISOString(),
+          lockType,
         }),
       });
       if (!res.ok) {
@@ -458,6 +456,53 @@ function LockForm({
         value={lockUntil}
         onChange={(e) => setLockUntil(e.target.value)}
       />
+      {/* Lock type */}
+      <div className="space-y-2">
+        <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide">
+          Protection level
+        </label>
+        {[
+          {
+            id: "SOFT",
+            icon: "🛡️",
+            label: "Flexible",
+            desc: "Unlock with a confirmation",
+          },
+          {
+            id: "HARD",
+            icon: "🔒",
+            label: "Fully locked",
+            desc: "No withdrawals until you unlock",
+          },
+          {
+            id: "KEYHOLDER",
+            icon: "👤",
+            label: "Keyholder required",
+            desc: "Someone you trust must approve",
+          },
+        ].map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setLockType(opt.id)}
+            className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+              lockType === opt.id
+                ? "border-emerald-600 bg-emerald-50"
+                : "border-gray-100"
+            }`}
+          >
+            <span>{opt.icon}</span>
+            <div>
+              <div
+                className={`text-sm font-medium ${lockType === opt.id ? "text-emerald-700" : "text-gray-900"}`}
+              >
+                {opt.label}
+              </div>
+              <div className="text-xs text-gray-500">{opt.desc}</div>
+            </div>
+          </button>
+        ))}
+      </div>
       {error && <p className="text-rose-600 text-sm">{error}</p>}
       <div className="flex gap-3">
         <button
