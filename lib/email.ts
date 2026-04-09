@@ -7,7 +7,7 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM = "LockBox <onboarding@resend.dev>"; // update with your domain
+const FROM = "LockBox <noreply@lockboxfinance.com>"; // update with your domain
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
 // ------------------------------------------------------------

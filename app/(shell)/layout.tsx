@@ -183,13 +183,13 @@ export default function ShellLayout({
                       const shareData = {
                         title: "LockBox",
                         text: "I'm using LockBox to protect my rent money. Try it:",
-                        url: "https://lockbox-ui.vercel.app/welcome",
+                        url: "https://lockboxfinance.com/welcome",
                       };
                       if (navigator.share) {
                         await navigator.share(shareData);
                       } else {
                         await navigator.clipboard.writeText(
-                          "https://lockbox-ui.vercel.app/welcome",
+                          "https://lockboxfinance.com/welcome",
                         );
                         alert("Link copied!");
                       }
