@@ -168,10 +168,34 @@ export default function ShellLayout({
                   sub: "Report a bug, request a feature",
                   href: null,
                 },
+                {
+                  icon: "🔗",
+                  label: "Share LockBox",
+                  sub: "Invite a friend",
+                  href: null,
+                  share: true,
+                },
               ].map((item) => (
                 <button
                   key={item.label}
-                  onClick={() => {
+                  onClick={async () => {
+                    if ((item as any).share) {
+                      const shareData = {
+                        title: "LockBox",
+                        text: "I'm using LockBox to protect my rent money. Try it:",
+                        url: "https://lockbox-ui.vercel.app/welcome",
+                      };
+                      if (navigator.share) {
+                        await navigator.share(shareData);
+                      } else {
+                        await navigator.clipboard.writeText(
+                          "https://lockbox-ui.vercel.app/welcome",
+                        );
+                        alert("Link copied!");
+                      }
+                      setSettingsOpen(false);
+                      return;
+                    }
                     if (item.href) {
                       setSettingsOpen(false);
                       router.push(item.href);
@@ -189,7 +213,6 @@ export default function ShellLayout({
                   <span className="text-gray-400 text-sm">›</span>
                 </button>
               ))}
-
               <button
                 onClick={() => signOut({ callbackUrl: "/signin" })}
                 className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 text-left"

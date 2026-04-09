@@ -203,6 +203,8 @@ function CreateBoxForm({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  // Add state at the top of CreateBoxForm
+  const [lockType, setLockType] = useState("SOFT");
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [lockUntil, setLockUntil] = useState("");
@@ -236,6 +238,58 @@ function CreateBoxForm({
       setLoading(false);
     }
   }
+
+  {
+    /* Lock type selector */
+  }
+  <div>
+    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+      Protection level
+    </label>
+    <div className="space-y-2">
+      {[
+        {
+          id: "SOFT",
+          icon: "🛡️",
+          label: "Flexible",
+          desc: "You can unlock with a confirmation",
+        },
+        {
+          id: "HARD",
+          icon: "🔒",
+          label: "Fully locked",
+          desc: "No withdrawals until you unlock",
+        },
+        {
+          id: "KEYHOLDER",
+          icon: "👤",
+          label: "Keyholder required",
+          desc: "Someone you trust must approve",
+        },
+      ].map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => setLockType(opt.id)}
+          className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+            lockType === opt.id
+              ? "border-emerald-600 bg-emerald-50"
+              : "border-gray-100"
+          }`}
+        >
+          <span>{opt.icon}</span>
+          <div>
+            <div
+              className={`text-sm font-medium ${lockType === opt.id ? "text-emerald-700" : "text-gray-900"}`}
+            >
+              {opt.label}
+            </div>
+            <div className="text-xs text-gray-500">{opt.desc}</div>
+          </div>
+        </button>
+      ))}
+    </div>
+  </div>;
 
   return (
     <div className="space-y-4">

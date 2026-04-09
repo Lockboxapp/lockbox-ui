@@ -375,3 +375,16 @@ model AuditEvent {
   @@index([action])
   @@index([createdAt])
 }
+
+// Password reset tokens
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique @default(cuid())
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+}
