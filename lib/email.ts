@@ -231,3 +231,53 @@ export async function sendKeyholderOTP({
     `,
   });
 }
+export async function sendWelcomeEmail({
+  userEmail,
+  userName,
+}: {
+  userEmail: string;
+  userName: string;
+}) {
+  const FROM = "LockBox <noreply@lockboxfinance.com>";
+
+  await resend.emails.send({
+    from: FROM,
+    to: userEmail,
+    subject: "Welcome to LockBox",
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto; color: #1a1a1a;">
+        <div style="margin-bottom: 24px;">
+          <span style="font-weight: bold; font-size: 18px;">🔒 LockBox</span>
+        </div>
+
+        <h2 style="margin-bottom: 8px;">Welcome${userName ? `, ${userName}` : ""}.</h2>
+        <p style="color: #555; line-height: 1.6;">Your account is set up. You're now part of a small group of people who take their financial commitments seriously.</p>
+
+        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+          <p style="margin: 0; font-size: 14px; color: #166534; line-height: 1.6;">
+            Your money is protected the moment you lock it. No impulse spending. No excuses. Just discipline.
+          </p>
+        </div>
+
+        <p style="color: #555; line-height: 1.6;">Here's what to do next:</p>
+        <ul style="color: #555; line-height: 2;">
+          <li>Deposit funds into your box</li>
+          <li>Lock it until your due date</li>
+          <li>Add a keyholder for extra accountability</li>
+        </ul>
+
+        <a href="https://lockboxfinance.com" style="display:inline-block;background:#059669;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;margin:16px 0;">
+          Open LockBox
+        </a>
+
+        <p style="color: #999; font-size: 12px; margin-top: 32px; font-style: italic;">
+          "Stay consistent." — The Banker
+        </p>
+        <p style="color: #ccc; font-size: 11px;">
+          LockBox · <a href="https://lockboxfinance.com" style="color:#ccc;">lockboxfinance.com</a> · 
+          <a href="mailto:support@lockboxfinance.com" style="color:#ccc;">support@lockboxfinance.com</a>
+        </p>
+      </div>
+    `,
+  });
+}
