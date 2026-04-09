@@ -21,6 +21,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!signin|signup|api/auth|api/signup|api/keyholders|keyholder|api/unlock-requests|api/keyholder-auth|_next|favicon.ico).*)",
+    "/((?!signin|signup|welcome|intent|onboard-signup|protect|lock|keyholder|api/auth|api/signup|api/keyholders|api/unlock-requests|api/keyholder-auth|_next|favicon.ico).*)",
   ],
 };
