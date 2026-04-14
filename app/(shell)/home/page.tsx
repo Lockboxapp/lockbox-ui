@@ -10,6 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -158,10 +159,13 @@ export default async function HomePage() {
     else if (dueDays !== null && dueDays <= 14) score += 2;
     if (b.targetAmount && b.balance < b.targetAmount) score += 2;
 
-    const urgency: "high" | "medium" | "low" =
-      score >= 5 ? "high" : score >= 2 ? "medium" : "low";
+    // Fix 5 — contextual urgency label instead of abstract high/medium/low
+    let urgencyLabel: string | null = null;
+    if (b.status === "UNLOCK_PENDING") urgencyLabel = "Unlock pending";
+    else if (dueDays !== null && dueDays <= 14) urgencyLabel = `Due in ${dueDays}d`;
+    else if (b.targetAmount && b.balance < b.targetAmount * 0.8) urgencyLabel = "Behind target";
 
-    return { ...b, dueDays, progressPercent, urgency, score };
+    return { ...b, dueDays, progressPercent, urgencyLabel, score };
   });
 
   const priorityBoxes = scoredBoxes
@@ -296,9 +300,9 @@ export default async function HomePage() {
           </div>
           <div className="space-y-3">
             {priorityBoxes.map((box) => (
+              <Link key={box.id} href="/vaults" className="block">
               <div
-                key={box.id}
-                className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm"
+                className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform"
               >
                 <div className="flex items-start justify-between mb-3">
                   <div>
@@ -323,17 +327,21 @@ export default async function HomePage() {
                       </div>
                     )}
                   </div>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                      box.urgency === "high"
-                        ? "bg-rose-100 text-rose-700"
-                        : box.urgency === "medium"
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-emerald-100 text-emerald-700"
-                    }`}
-                  >
-                    {box.urgency}
-                  </span>
+                  {box.urgencyLabel && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+                        box.urgencyLabel === "Unlock pending"
+                          ? "bg-amber-100 text-amber-700"
+                          : box.urgencyLabel === "Behind target"
+                          ? "bg-indigo-100 text-indigo-700"
+                          : box.dueDays !== null && box.dueDays <= 7
+                          ? "bg-rose-100 text-rose-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {box.urgencyLabel}
+                    </span>
+                  )}
                 </div>
 
                 {box.targetAmount ? (
@@ -355,6 +363,7 @@ export default async function HomePage() {
                   <div className="text-xs text-gray-400">{fmt(box.balance)} saved</div>
                 )}
               </div>
+              </Link>
             ))}
           </div>
         </div>
@@ -424,24 +433,34 @@ export default async function HomePage() {
           </div>
         ) : (
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
-            {recentActivity.map((item, i) => (
-              <div
-                key={item.id}
-                className={`flex items-center justify-between px-4 py-3 ${
-                  i < recentActivity.length - 1
-                    ? "border-b border-gray-50"
-                    : ""
-                }`}
-              >
-                <div className="text-sm text-gray-700 leading-snug">{item.label}</div>
-                <div className="text-xs text-gray-400 ml-3 whitespace-nowrap">
-                  {new Date(item.postedAt).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
+            {recentActivity.map((item, i) => {
+              const isPositive = ["DEPOSIT", "TRANSFER_IN", "INCOME"].includes(item.type);
+              const amtDollars = Math.round(item.amount / 100);
+              const amtStr = `${isPositive ? "+" : "−"}$${amtDollars.toLocaleString("en-US")}`;
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-center justify-between px-4 py-3 ${
+                    i < recentActivity.length - 1
+                      ? "border-b border-gray-50"
+                      : ""
+                  }`}
+                >
+                  <div className="text-sm text-gray-700 leading-snug">{item.label}</div>
+                  <div className="flex items-center gap-2 ml-3 shrink-0">
+                    <span className={`text-sm font-semibold ${isPositive ? "text-emerald-600" : "text-gray-700"}`}>
+                      {amtStr}
+                    </span>
+                    <span className="text-xs text-gray-400 whitespace-nowrap">
+                      {new Date(item.postedAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

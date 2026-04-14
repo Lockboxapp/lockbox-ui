@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, lockUntil, lockType } = body;
+    const { name, description, targetAmount, lockUntil, lockType, keyholderRelationshipId } = body;
 
     // Validate lockType
     const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
@@ -115,6 +115,23 @@ export async function POST(req: NextRequest) {
           "[POST /api/boxes] Unit account creation failed:",
           unitError,
         );
+      }
+    }
+
+    // If KEYHOLDER lockType and a relationship was provided, link it to this box
+    if (resolvedLockType === "KEYHOLDER" && keyholderRelationshipId) {
+      try {
+        const rel = await prisma.keyholderRelationship.findFirst({
+          where: { id: keyholderRelationshipId, userId: session.user.id },
+        });
+        if (rel) {
+          await prisma.keyholderRelationshipBox.create({
+            data: { relationshipId: keyholderRelationshipId, boxId: box.id },
+          });
+        }
+      } catch (khErr) {
+        // Non-fatal: box was created; just log the failure
+        console.error("[POST /api/boxes] keyholder link failed:", khErr);
       }
     }
 

@@ -87,7 +87,7 @@ export async function PATCH(
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, action, lockUntil, lockType } =
+    const { name, description, targetAmount, action, lockUntil, lockType, keyholderRelationshipId } =
       body;
 
     // --------------------------------------------------------
@@ -105,30 +105,53 @@ export async function PATCH(
         );
       }
 
-      if (!lockUntil) {
+      const resolvedLockType: string = lockType ?? box.lockType;
+      const isSoft = resolvedLockType === "SOFT";
+
+      // lockUntil is required for HARD and KEYHOLDER, optional for SOFT
+      if (!lockUntil && !isSoft) {
         return NextResponse.json(
-          { error: "lockUntil is required to lock a box" },
+          { error: "lockUntil is required for HARD and KEYHOLDER lock types" },
           { status: 400 },
         );
       }
 
-      const lockDate = new Date(lockUntil);
-
-      // Lock date must be in the future
-      if (lockDate <= new Date()) {
+      if (lockUntil && new Date(lockUntil) <= new Date()) {
         return NextResponse.json(
           { error: "lockUntil must be a future date" },
           { status: 400 },
         );
       }
 
+      const lockData: Record<string, unknown> = {
+        status: BOX_STATUS.LOCKED,
+        lockType: resolvedLockType,
+      };
+      if (lockUntil) lockData.lockUntil = new Date(lockUntil);
+
       const lockedBox = await prisma.box.update({
         where: { id: id },
-        data: {
-          status: BOX_STATUS.LOCKED,
-          lockUntil: lockDate,
-        },
+        data: lockData,
       });
+
+      // If KEYHOLDER and a relationship ID was provided, link it to this box
+      if (resolvedLockType === "KEYHOLDER" && keyholderRelationshipId) {
+        const rel = await prisma.keyholderRelationship.findFirst({
+          where: { id: keyholderRelationshipId, userId: session.user.id },
+        });
+        if (rel) {
+          await prisma.keyholderRelationshipBox.upsert({
+            where: {
+              relationshipId_boxId: {
+                relationshipId: keyholderRelationshipId,
+                boxId: id,
+              },
+            },
+            update: {},
+            create: { relationshipId: keyholderRelationshipId, boxId: id },
+          });
+        }
+      }
 
       return NextResponse.json(lockedBox);
     }
