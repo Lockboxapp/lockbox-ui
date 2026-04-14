@@ -80,6 +80,9 @@ model User {
 
   // Unit BaaS
   unitCustomerId String? // Unit customer ID assigned after KYC
+
+  // Admin
+  isAdmin Boolean @default(false)
 }
 
 model Account {

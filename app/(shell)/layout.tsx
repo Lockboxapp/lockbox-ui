@@ -15,7 +15,7 @@ import { Home, Lock, MessageSquare, Star, Menu, PiggyBank } from "lucide-react";
 import { useState } from "react";
 
 const tabs = [
-  { key: "home", label: "Home", icon: Home, href: "/vaults" },
+  { key: "home", label: "Home", icon: Home, href: "/home" },
   { key: "vaults", label: "Vaults", icon: Lock, href: "/vaults" },
   { key: "banker", label: "Banker", icon: MessageSquare, href: "/banker" },
   { key: "rewards", label: "Rewards", icon: Star, href: "/rewards" },
@@ -52,6 +52,7 @@ export default function ShellLayout({
     if (pathname.startsWith("/vaults")) return "vaults";
     if (pathname.startsWith("/banker")) return "banker";
     if (pathname.startsWith("/rewards")) return "rewards";
+    if (pathname.startsWith("/home")) return "home";
     return "home";
   }
 
