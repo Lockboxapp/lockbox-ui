@@ -21,6 +21,7 @@
     "nodemailer": "7.0.10",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "recharts": "^2.15.3",
     "resend": "^6.9.4",
     "zod": "^4.1.12"
   },
