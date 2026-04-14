@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { sendWelcomeEmail } from "@/lib/email";
+import { z } from "zod";
 
-("");
+const signupSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email(),
+  password: z.string().min(8),
+});
 
 function addDays(days: number) {
   const d = new Date();
@@ -13,14 +18,20 @@ function addDays(days: number) {
 
 export async function POST(req: Request) {
   try {
-    const { name, email, password } = await req.json();
+    const body = await req.json();
+    const parsed = signupSchema.safeParse({
+      ...body,
+      email: typeof body?.email === "string" ? body.email.trim().toLowerCase() : "",
+    });
 
-    if (!email || !password) {
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "Email and password are required" },
+        { error: "A valid email and password (min 8 characters) are required" },
         { status: 400 },
       );
     }
+
+    const { name, email, password } = parsed.data;
 
     const passwordHash = await bcrypt.hash(password, 10);
 

@@ -1,25 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { z } from "zod";
+
+const schema = z.object({
+  email: z.string().email(),
+});
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const parsed = schema.safeParse({
+      email: typeof body?.email === "string" ? body.email.trim().toLowerCase() : "",
+    });
 
-    if (!email || !email.includes("@") || !email.includes(".")) {
-      // Return generic success — never reveal validation details
+    // Always return generic success — never reveal if email is invalid or already exists
+    if (!parsed.success) {
       return NextResponse.json({ ok: true });
     }
 
     await prisma.waitlistEntry.upsert({
-      where: { email },
+      where: { email: parsed.data.email },
       update: {},
-      create: { email },
+      create: { email: parsed.data.email },
     });
 
     return NextResponse.json({ ok: true });
   } catch {
-    // Return generic success — never expose errors to the client
     return NextResponse.json({ ok: true });
   }
 }
