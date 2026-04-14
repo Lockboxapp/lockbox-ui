@@ -98,10 +98,16 @@ export default async function HomePage() {
       }),
     ]);
 
-  // ── 1. Snapshot ──────────────────────────────────────────────────────────
-  // lockedAmount is the source of truth for partial lock enforcement (Sprint 2).
+  // ── 1. Snapshot (Sprint 3 Fix 1: defensive effectiveLocked) ──────────────
+  // Backfill defense: boxes locked before Sprint 2's migration have lockedAmount=0
+  // but status=LOCKED/UNLOCK_PENDING. Treat their full balance as locked.
+  const effectiveLocked = (b: typeof boxes[number]) => {
+    if (b.lockedAmount > 0) return b.lockedAmount;
+    if (b.status === "LOCKED" || b.status === "UNLOCK_PENDING") return b.balance;
+    return 0;
+  };
   const totalSaved = boxes.reduce((sum, b) => sum + b.balance, 0);
-  const totalLocked = boxes.reduce((sum, b) => sum + b.lockedAmount, 0);
+  const totalLocked = boxes.reduce((sum, b) => sum + effectiveLocked(b), 0);
   const availableToMove = totalSaved - totalLocked;
 
   const nextDueBox = boxes
@@ -112,41 +118,6 @@ export default async function HomePage() {
     )[0] ?? null;
 
   const nextDueDays = nextDueBox ? dueDaysFrom(nextDueBox.lockUntil) : null;
-
-  // ── 2. Banker Insight (priority order: unlock > behind > positive) ────────
-  type InsightType = "unlock_pending" | "behind_target" | "positive";
-  let bankerInsight: { type: InsightType; message: string };
-
-  if (pendingUnlockRequests.length > 0) {
-    const count = pendingUnlockRequests.length;
-    bankerInsight = {
-      type: "unlock_pending",
-      message: `You have ${count} pending unlock request${count > 1 ? "s" : ""}. Your keyholder is waiting.`,
-    };
-  } else {
-    const behindBox = boxes.find(
-      (b) =>
-        b.targetAmount &&
-        b.balance < b.targetAmount &&
-        b.lockUntil &&
-        new Date(b.lockUntil) > now
-    );
-    if (behindBox) {
-      const gap = behindBox.targetAmount! - behindBox.balance;
-      bankerInsight = {
-        type: "behind_target",
-        message: `Your ${behindBox.name} is behind by ${fmt(gap)}.`,
-      };
-    } else {
-      bankerInsight = {
-        type: "positive",
-        message:
-          boxes.length > 0
-            ? "All your boxes are on track. Keep it up."
-            : "Ready to protect your first dollar?",
-      };
-    }
-  }
 
   // ── 3. Priority Boxes (Sprint 2 Fix 4: tightened criteria) ──────────────
   // A box qualifies if:
@@ -193,6 +164,42 @@ export default async function HomePage() {
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
+  // ── 2b. Banker Insight (Sprint 3 Fix 2: aligned with Priority criteria) ──
+  // Must only reference boxes that qualify for Priority. Never invent warnings.
+  type InsightType = "unlock_pending" | "behind_target" | "positive";
+  let bankerInsight: { type: InsightType; message: string };
+
+  const unlockPendingQualifier = priorityBoxes.find((b) => b.status === "UNLOCK_PENDING");
+  const behindQualifier = priorityBoxes.find(
+    (b) =>
+      b.status !== "UNLOCK_PENDING" &&
+      b.targetAmount &&
+      b.balance < b.targetAmount &&
+      b.lockUntil,
+  );
+
+  if (unlockPendingQualifier) {
+    bankerInsight = {
+      type: "unlock_pending",
+      message: "You have a pending unlock request. Think carefully before proceeding.",
+    };
+  } else if (behindQualifier) {
+    bankerInsight = {
+      type: "behind_target",
+      message: `Your ${behindQualifier.name} is behind. You may not hit your target in time.`,
+    };
+  } else {
+    // 30-day discipline check: active 30+ days with no unlock requests
+    const accountAgeDays = dbUser?.createdAt
+      ? Math.floor((now.getTime() - new Date(dbUser.createdAt).getTime()) / (1000 * 60 * 60 * 24))
+      : 0;
+    if (accountAgeDays >= 30 && !lastUnlockAttempt) {
+      bankerInsight = { type: "positive", message: "30 days of discipline. Keep it going." };
+    } else {
+      bankerInsight = { type: "positive", message: "You are on track. Stay consistent." };
+    }
+  }
+
   // ── 4. Today's Actions (Sprint 2 Fix 5: tightened logic) ────────────────
   // "Add funds" only fires for boxes that are LOCKED + have lockUntil + due within 14d + below 80% target.
   type ActionType = "unlock_request" | "underfunded_box";
@@ -225,12 +232,6 @@ export default async function HomePage() {
       href: `/vaults?box=${box.id}`,
     });
   }
-
-  // ── 5. Consistency Streak ────────────────────────────────────────────────
-  const streakStart = lastUnlockAttempt?.requestedAt ?? dbUser?.createdAt ?? now;
-  const streakDays = Math.floor(
-    (now.getTime() - new Date(streakStart).getTime()) / (1000 * 60 * 60 * 24)
-  );
 
   // ── 6. Recent Activity ───────────────────────────────────────────────────
   const recentActivity = recentTransactions.map((tx) => ({
@@ -444,26 +445,7 @@ export default async function HomePage() {
         )}
       </div>
 
-      {/* ── 6. Consistency Streak ── */}
-      <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center justify-between">
-        <div>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
-            Consistency Streak
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-bold text-gray-900">{streakDays}</span>
-            <span className="text-sm text-gray-400 font-medium">days</span>
-          </div>
-          <div className="text-xs text-gray-400 mt-0.5">
-            Without an early unlock attempt
-          </div>
-        </div>
-        <div className={`text-4xl ${streakDays >= 7 ? "opacity-100" : "opacity-25"}`}>
-          🔒
-        </div>
-      </div>
-
-      {/* ── 7. Recent Activity ── */}
+      {/* ── 6. Recent Activity ── */}
       <div>
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
           Recent Activity

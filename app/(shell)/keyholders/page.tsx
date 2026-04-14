@@ -27,6 +27,8 @@ type KeyholderRelationship = {
 
 type PageState = "loading" | "ready" | "invite_form";
 
+type BoxLite = { id: string; name: string; status: string };
+
 export default function KeyholdersPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -41,6 +43,8 @@ export default function KeyholdersPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteName, setInviteName] = useState("");
   const [scopeType, setScopeType] = useState<"ALL" | "SELECTED">("ALL");
+  const [availableBoxes, setAvailableBoxes] = useState<BoxLite[]>([]);
+  const [selectedBoxIds, setSelectedBoxIds] = useState<string[]>([]);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [inviteSuccess, setInviteSuccess] = useState(false);
@@ -51,6 +55,17 @@ export default function KeyholdersPage() {
 
   useEffect(() => {
     fetchRelationships();
+    // Fetch boxes for SELECTED scope selector
+    fetch("/api/boxes")
+      .then((r) => r.json())
+      .then((data: BoxLite[]) => {
+        if (Array.isArray(data)) {
+          setAvailableBoxes(
+            data.filter((b) => b.status !== "CLOSED").map((b) => ({ id: b.id, name: b.name, status: b.status })),
+          );
+        }
+      })
+      .catch(() => {});
   }, []);
 
   async function fetchRelationships() {
@@ -70,6 +85,11 @@ export default function KeyholdersPage() {
     e.preventDefault();
     if (!inviteEmail.trim() || inviteLoading || isSelfEmail) return;
 
+    if (scopeType === "SELECTED" && selectedBoxIds.length === 0) {
+      setInviteError("Please select at least one box.");
+      return;
+    }
+
     setInviteLoading(true);
     setInviteError("");
 
@@ -81,6 +101,7 @@ export default function KeyholdersPage() {
           email: inviteEmail.trim(),
           name: inviteName.trim() || null,
           scopeType,
+          boxIds: scopeType === "SELECTED" ? selectedBoxIds : [],
         }),
       });
 
@@ -96,6 +117,7 @@ export default function KeyholdersPage() {
       setInviteEmail("");
       setInviteName("");
       setScopeType("ALL");
+      setSelectedBoxIds([]);
       await fetchRelationships();
 
       // Return to ready state after short delay
@@ -260,10 +282,46 @@ export default function KeyholdersPage() {
                 </button>
               </div>
               {scopeType === "SELECTED" && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Box selection coming soon. For now, invite with all boxes and
-                  adjust scope later.
-                </p>
+                <div className="mt-3 space-y-2">
+                  {availableBoxes.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      You don't have any boxes yet. Create a box first, then invite a keyholder for it.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-xs text-gray-500">Choose the boxes this keyholder covers:</p>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {availableBoxes.map((b) => {
+                          const checked = selectedBoxIds.includes(b.id);
+                          return (
+                            <label
+                              key={b.id}
+                              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                                checked ? "bg-emerald-50 border-emerald-300" : "bg-white border-gray-200"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setSelectedBoxIds((prev) =>
+                                    prev.includes(b.id)
+                                      ? prev.filter((id) => id !== b.id)
+                                      : [...prev, b.id],
+                                  )
+                                }
+                                className="h-4 w-4 accent-emerald-600"
+                              />
+                              <span className={`text-sm ${checked ? "text-emerald-800 font-medium" : "text-gray-700"}`}>
+                                {b.name}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </div>
 
