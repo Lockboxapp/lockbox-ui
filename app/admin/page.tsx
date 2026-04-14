@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import ActivityChart, { ChartDataPoint, ChartRanges } from "@/components/admin/ActivityChart";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,51 @@ function StatCard({
   );
 }
 
+// Build an N-day date series and merge counts into it
+function buildChartData(
+  users: { createdAt: Date }[],
+  waitlist: { createdAt: Date }[],
+  boxes: { createdAt: Date }[],
+  days: number,
+): ChartDataPoint[] {
+  const series: ChartDataPoint[] = [];
+  const now = new Date();
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    series.push({ date: key, users: 0, waitlist: 0, boxes: 0 });
+  }
+
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - days);
+
+  const fmt = (d: Date) =>
+    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+  for (const u of users) {
+    const dt = new Date(u.createdAt);
+    if (dt < cutoff) continue;
+    const point = series.find((s) => s.date === fmt(dt));
+    if (point) point.users += 1;
+  }
+  for (const w of waitlist) {
+    const dt = new Date(w.createdAt);
+    if (dt < cutoff) continue;
+    const point = series.find((s) => s.date === fmt(dt));
+    if (point) point.waitlist += 1;
+  }
+  for (const b of boxes) {
+    const dt = new Date(b.createdAt);
+    if (dt < cutoff) continue;
+    const point = series.find((s) => s.date === fmt(dt));
+    if (point) point.boxes += 1;
+  }
+
+  return series;
+}
+
 export default async function AdminPage() {
   // ── Auth check ──────────────────────────────────────────────
   const session = await getServerSession(authOptions);
@@ -35,16 +81,22 @@ export default async function AdminPage() {
     redirect("/signin");
   }
 
-  const user = await prisma.user.findUnique({
+  const adminUser = await prisma.user.findUnique({
     where: { email: session.user.email },
     select: { isAdmin: true, name: true },
   });
 
-  if (!user?.isAdmin) {
+  if (!adminUser?.isAdmin) {
     redirect("/");
   }
 
-  // ── Stats queries (all in parallel) ─────────────────────────
+  const nDaysAgo = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return d;
+  };
+
+  // ── Stats + chart queries (all in parallel) ──────────────────
   const [
     waitlistTotal,
     waitlistRecent,
@@ -59,6 +111,10 @@ export default async function AdminPage() {
     unlockDenied,
     keyholderTotal,
     keyholderActive,
+    // chart data — fetch 90 days, slice for shorter ranges client-side
+    waitlistActivity,
+    userActivity,
+    boxActivity,
   ] = await Promise.all([
     prisma.waitlistEntry.count(),
     prisma.waitlistEntry.findMany({
@@ -80,7 +136,25 @@ export default async function AdminPage() {
     prisma.unlockRequest.count({ where: { status: "DENIED" } }),
     prisma.keyholderRelationship.count(),
     prisma.keyholderRelationship.count({ where: { status: "ACTIVE" } }),
+    prisma.waitlistEntry.findMany({
+      where: { createdAt: { gte: nDaysAgo(90) } },
+      select: { createdAt: true },
+    }),
+    prisma.user.findMany({
+      where: { createdAt: { gte: nDaysAgo(90) } },
+      select: { createdAt: true },
+    }),
+    prisma.box.findMany({
+      where: { createdAt: { gte: nDaysAgo(90) } },
+      select: { createdAt: true },
+    }),
   ]);
+
+  const chartRanges: ChartRanges = {
+    "7":  buildChartData(userActivity, waitlistActivity, boxActivity, 7),
+    "30": buildChartData(userActivity, waitlistActivity, boxActivity, 30),
+    "90": buildChartData(userActivity, waitlistActivity, boxActivity, 90),
+  };
 
   const updatedAt = new Date().toLocaleString("en-US", {
     month: "short",
@@ -111,7 +185,7 @@ export default async function AdminPage() {
             <div>
               <div className="font-bold text-gray-900">LockBox Admin</div>
               <div className="text-xs text-gray-500">
-                Founder Dashboard · {user.name ?? session.user.email}
+                Founder Dashboard · {adminUser.name ?? session.user.email}
               </div>
             </div>
           </div>
@@ -157,7 +231,7 @@ export default async function AdminPage() {
         </div>
 
         {/* Row 3 — unlock breakdown */}
-        <div className="grid grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-3 gap-4 mb-8">
           <StatCard
             label="Unlock — Pending"
             value={unlockPending}
@@ -174,6 +248,9 @@ export default async function AdminPage() {
             sub="Keyholder denied"
           />
         </div>
+
+        {/* Activity chart */}
+        <ActivityChart ranges={chartRanges} />
 
         {/* Two-column recent activity */}
         <div className="grid grid-cols-2 gap-6">
