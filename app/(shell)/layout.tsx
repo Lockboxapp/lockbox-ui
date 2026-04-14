@@ -15,7 +15,7 @@ import { Home, Lock, MessageSquare, Star, Menu, PiggyBank } from "lucide-react";
 import { useState } from "react";
 
 const tabs = [
-  { key: "home", label: "Home", icon: Home, href: "/" },
+  { key: "home", label: "Home", icon: Home, href: "/vaults" },
   { key: "vaults", label: "Vaults", icon: Lock, href: "/vaults" },
   { key: "banker", label: "Banker", icon: MessageSquare, href: "/banker" },
   { key: "rewards", label: "Rewards", icon: Star, href: "/rewards" },

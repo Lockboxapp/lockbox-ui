@@ -376,6 +376,15 @@ model AuditEvent {
   @@index([createdAt])
 }
 
+// Waitlist email captures
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
 // Password reset tokens
 model PasswordResetToken {
   id        String   @id @default(cuid())
