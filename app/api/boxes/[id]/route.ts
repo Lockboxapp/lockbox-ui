@@ -90,6 +90,26 @@ export async function PATCH(
     const { name, description, targetAmount, action, lockUntil, lockType, keyholderRelationshipId, lockedAmountInDollars } =
       body;
 
+    // Sprint 4 — Wallet is protected from all lock/unlock actions
+    if (box.isWallet && (action === "lock" || action === "unlock")) {
+      return NextResponse.json(
+        { error: "The Wallet cannot be locked or unlocked. It is always liquid." },
+        { status: 400 },
+      );
+    }
+
+    // Sprint 4 — reopen a closed box
+    if (action === "reopen") {
+      if (!box.isClosed) {
+        return NextResponse.json({ error: "Box is not closed" }, { status: 400 });
+      }
+      const reopened = await prisma.box.update({
+        where: { id },
+        data: { isClosed: false },
+      });
+      return NextResponse.json(reopened);
+    }
+
     // --------------------------------------------------------
     // LOCK ACTION — server enforces all lock rules
     // --------------------------------------------------------
@@ -248,31 +268,107 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Cannot close a locked box — must go through unlock flow first
-    if (
-      box.status === BOX_STATUS.LOCKED ||
-      box.status === BOX_STATUS.UNLOCK_PENDING
-    ) {
+    // Sprint 4 — Wallet cannot be closed
+    if (box.isWallet) {
+      return NextResponse.json(
+        { error: "The Wallet cannot be closed." },
+        { status: 400 },
+      );
+    }
+
+    if (box.isClosed) {
+      return NextResponse.json({ error: "Box is already closed" }, { status: 400 });
+    }
+
+    // Sprint 4 close conditions — collect ALL blockers so UI can show a precise modal
+    const blockers: string[] = [];
+    if (box.lockedAmount > 0) blockers.push("locked_amount");
+    if (box.status === BOX_STATUS.LOCKED || box.status === BOX_STATUS.UNLOCK_PENDING) {
+      blockers.push("status_locked");
+    }
+    const pendingUnlock = await prisma.unlockRequest.findFirst({
+      where: { boxId: box.id, status: "PENDING" },
+      select: { id: true },
+    });
+    if (pendingUnlock) blockers.push("pending_unlock");
+    const activeKeyholder = await prisma.keyholderRelationshipBox.findFirst({
+      where: { boxId: box.id, relationship: { status: "ACTIVE" } },
+      select: { id: true },
+    });
+    if (activeKeyholder) blockers.push("active_keyholder");
+
+    if (blockers.length > 0) {
       return NextResponse.json(
         {
-          error: "Cannot close a locked box.",
-          locked: true,
-          lockType: box.lockType,
-          message:
-            box.lockType === "KEYHOLDER"
-              ? "Your keyholder must approve an unlock before you can close this box."
-              : "Submit an unlock request before closing this box.",
+          error: "Box cannot be closed yet",
+          blockers,
+          balance: box.balance / 100,
+          lockedAmount: box.lockedAmount / 100,
+          available: (box.balance - box.lockedAmount) / 100,
         },
         { status: 400 },
       );
     }
 
-    const closedBox = await prisma.box.update({
-      where: { id: id },
-      data: { status: BOX_STATUS.CLOSED },
+    // Ensure the Wallet exists for sweep destination (defensive — lazy create)
+    let wallet = await prisma.box.findFirst({
+      where: { userId: session.user.id, isWallet: true },
+    });
+    if (!wallet) {
+      wallet = await prisma.box.create({
+        data: {
+          userId: session.user.id,
+          name: "Wallet",
+          status: "CREATED",
+          lockType: "SOFT",
+          isWallet: true,
+        },
+      });
+    }
+
+    const available = box.balance - box.lockedAmount;
+
+    // Sweep available to Wallet, mark box closed, record transactions
+    await prisma.$transaction(async (tx) => {
+      if (available > 0) {
+        await tx.box.update({
+          where: { id: box.id },
+          data: { balance: { decrement: available } },
+        });
+        await tx.box.update({
+          where: { id: wallet!.id },
+          data: { balance: { increment: available } },
+        });
+        await tx.transaction.createMany({
+          data: [
+            {
+              userId: session.user.id,
+              boxId: box.id,
+              type: "TRANSFER_OUT",
+              amount: available,
+              description: `Box closed — swept to Wallet`,
+            },
+            {
+              userId: session.user.id,
+              boxId: wallet!.id,
+              type: "TRANSFER_IN",
+              amount: available,
+              description: `From closed box: ${box.name}`,
+            },
+          ],
+        });
+      }
+      await tx.box.update({
+        where: { id: box.id },
+        data: { isClosed: true },
+      });
     });
 
-    return NextResponse.json(closedBox);
+    return NextResponse.json({
+      ok: true,
+      sweptToWallet: available / 100,
+      walletId: wallet.id,
+    });
   } catch (error) {
     console.error("[DELETE /api/boxes/:id]", error);
     return NextResponse.json(

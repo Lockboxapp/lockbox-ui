@@ -24,8 +24,34 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Sprint 4 — lazy-backfill Wallet for existing users who signed up before the feature
+    const walletExists = await prisma.box.findFirst({
+      where: { userId: session.user.id, isWallet: true },
+      select: { id: true },
+    });
+    if (!walletExists) {
+      await prisma.box.create({
+        data: {
+          userId: session.user.id,
+          name: "Wallet",
+          status: "CREATED",
+          lockType: "SOFT",
+          isWallet: true,
+          balance: 0,
+          lockedAmount: 0,
+        },
+      });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const includeClosed = searchParams.get("includeClosed") === "1";
+    const closedOnly = searchParams.get("closed") === "1";
+
     const boxes = await prisma.box.findMany({
-      where: { userId: session.user.id },
+      where: {
+        userId: session.user.id,
+        ...(closedOnly ? { isClosed: true } : includeClosed ? {} : { isClosed: false }),
+      },
       include: {
         unlockRequests: {
           where: { status: "PENDING" },
@@ -87,6 +113,7 @@ export async function POST(req: NextRequest) {
         lockUntil: lockUntil ? new Date(lockUntil) : null,
         status: BOX_STATUS.CREATED,
         userId: session.user.id,
+        isWallet: false, // Wallet is only created via signup or lazy-backfill
       },
     });
 

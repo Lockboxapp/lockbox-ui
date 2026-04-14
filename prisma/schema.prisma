@@ -215,6 +215,8 @@ model Box {
   targetAmount Int? // stored in cents, optional goal
   lockUntil    DateTime? // null until box is locked
   isPriority   Boolean   @default(false) // manually pinned to priority by user
+  isWallet     Boolean   @default(false) // one per user, auto-created on signup
+  isClosed     Boolean   @default(false) // existence state, separate from lock lifecycle
 
   userId String
   user   User   @relation(fields: [userId], references: [id])

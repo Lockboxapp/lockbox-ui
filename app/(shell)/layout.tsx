@@ -11,14 +11,14 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Home, Lock, MessageSquare, Star, Menu, PiggyBank } from "lucide-react";
+import { Home, Lock, MessageSquare, CreditCard, Menu, PiggyBank } from "lucide-react";
 import { useState } from "react";
 
 const tabs = [
   { key: "home", label: "Home", icon: Home, href: "/home" },
   { key: "vaults", label: "Vaults", icon: Lock, href: "/vaults" },
+  { key: "card", label: "Card", icon: CreditCard, href: "/card" },
   { key: "banker", label: "Banker", icon: MessageSquare, href: "/banker" },
-  { key: "rewards", label: "Rewards", icon: Star, href: "/rewards" },
 ] as const;
 
 export default function ShellLayout({
@@ -50,8 +50,8 @@ export default function ShellLayout({
 
   function getActiveTab() {
     if (pathname.startsWith("/vaults")) return "vaults";
+    if (pathname.startsWith("/card")) return "card";
     if (pathname.startsWith("/banker")) return "banker";
-    if (pathname.startsWith("/rewards")) return "rewards";
     if (pathname.startsWith("/home")) return "home";
     return "home";
   }
@@ -155,6 +155,12 @@ export default function ShellLayout({
                   label: "Manage Accountability Partners",
                   sub: "Keyholders",
                   href: "/keyholders",
+                },
+                {
+                  icon: "⭐",
+                  label: "Rewards",
+                  sub: "Consistency streak and more",
+                  href: "/rewards",
                 },
                 {
                   icon: "💳",

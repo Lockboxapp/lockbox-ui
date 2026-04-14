@@ -51,10 +51,15 @@ export default async function HomePage() {
   const now = new Date();
 
   // ── All primary queries in parallel ─────────────────────────────────────
-  const [boxes, pendingUnlockRequests, recentTransactions, dbUser, lastUnlockAttempt] =
+  const [boxes, pendingUnlockRequests, recentTransactions, dbUser, lastUnlockAttempt, wallet] =
     await Promise.all([
       prisma.box.findMany({
-        where: { userId, status: { in: ACTIVE_STATUSES } },
+        where: {
+          userId,
+          status: { in: ACTIVE_STATUSES },
+          isClosed: false,
+          isWallet: false, // Sprint 4: exclude Wallet from regular box widgets
+        },
         orderBy: { updatedAt: "desc" },
         select: {
           id: true,
@@ -96,19 +101,22 @@ export default async function HomePage() {
         orderBy: { requestedAt: "desc" },
         select: { requestedAt: true },
       }),
+      prisma.box.findFirst({
+        where: { userId, isWallet: true },
+        select: { id: true, balance: true },
+      }),
     ]);
 
-  // ── 1. Snapshot (Sprint 3 Fix 1: defensive effectiveLocked) ──────────────
-  // Backfill defense: boxes locked before Sprint 2's migration have lockedAmount=0
-  // but status=LOCKED/UNLOCK_PENDING. Treat their full balance as locked.
+  // ── 1. Snapshot (Sprint 4: Wallet added; Sprint 3 defensive effectiveLocked kept) ──
   const effectiveLocked = (b: typeof boxes[number]) => {
     if (b.lockedAmount > 0) return b.lockedAmount;
     if (b.status === "LOCKED" || b.status === "UNLOCK_PENDING") return b.balance;
     return 0;
   };
-  const totalSaved = boxes.reduce((sum, b) => sum + b.balance, 0);
-  const totalLocked = boxes.reduce((sum, b) => sum + effectiveLocked(b), 0);
-  const availableToMove = totalSaved - totalLocked;
+  const walletBalance = wallet?.balance ?? 0;
+  const boxTotal = boxes.reduce((sum, b) => sum + b.balance, 0);
+  const protectedInBoxes = boxes.reduce((sum, b) => sum + effectiveLocked(b), 0);
+  const totalInLockBox = walletBalance + boxTotal;
 
   const nextDueBox = boxes
     .filter((b) => b.lockUntil && LOCKED_STATUSES.includes(b.status))
@@ -178,10 +186,18 @@ export default async function HomePage() {
       b.lockUntil,
   );
 
+  // Sprint 4: Wallet-low nudge — fires when Wallet < $20 and there's money protected in boxes
+  const walletLow = walletBalance < 2000 && protectedInBoxes > 0;
+
   if (unlockPendingQualifier) {
     bankerInsight = {
       type: "unlock_pending",
       message: "You have a pending unlock request. Think carefully before proceeding.",
+    };
+  } else if (walletLow) {
+    bankerInsight = {
+      type: "behind_target",
+      message: `Your Wallet is running low. You have ${fmt(walletBalance)} left. You also have money protected in boxes — only move what you need.`,
     };
   } else if (behindQualifier) {
     bankerInsight = {
@@ -265,22 +281,22 @@ export default async function HomePage() {
         </div>
       </div>
 
-      {/* ── 2. Money Snapshot ── */}
+      {/* ── 2. Money Snapshot (Sprint 4: Wallet + Protected in boxes + Total) ── */}
       <div className="bg-emerald-700 rounded-2xl p-5 text-white shadow-sm">
         <div className="text-xs font-semibold opacity-60 uppercase tracking-widest mb-1">
-          Total Saved
+          Total in LockBox
         </div>
         <div className="text-4xl font-bold tracking-tight mb-4">
-          {fmt(totalSaved)}
+          {fmt(totalInLockBox)}
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-white/10 rounded-xl p-3">
-            <div className="text-xs opacity-60 mb-0.5">Locked</div>
-            <div className="text-base font-semibold">{fmt(totalLocked)}</div>
+            <div className="text-xs opacity-60 mb-0.5">Wallet</div>
+            <div className="text-base font-semibold">{fmt(walletBalance)}</div>
           </div>
           <div className="bg-white/10 rounded-xl p-3">
-            <div className="text-xs opacity-60 mb-0.5">Available</div>
-            <div className="text-base font-semibold">{fmt(availableToMove)}</div>
+            <div className="text-xs opacity-60 mb-0.5">Protected in boxes</div>
+            <div className="text-base font-semibold">{fmt(protectedInBoxes)}</div>
           </div>
         </div>
         {nextDueBox && nextDueDays !== null && (

@@ -20,6 +20,9 @@ type Box = {
   status: string;
   unitAccountId: string | null;
   lockType: string;
+  isWallet: boolean;
+  isClosed: boolean;
+  updatedAt: string;
 };
 
 function toVaultShape(box: Box) {
@@ -27,10 +30,7 @@ function toVaultShape(box: Box) {
     id: box.id,
     name: box.name,
     target: box.targetAmount ? box.targetAmount / 100 : 0,
-    locked:
-      box.status === "LOCKED" || box.status === "UNLOCK_PENDING"
-        ? box.balance / 100
-        : 0,
+    locked: (box.lockedAmount ?? 0) / 100,
     saved: box.balance / 100,
     dueDays: box.lockUntil
       ? Math.ceil(
@@ -40,6 +40,9 @@ function toVaultShape(box: Box) {
       : null,
     isLocked: box.status === "LOCKED" || box.status === "UNLOCK_PENDING",
     lockType: box.lockType ?? "SOFT",
+    isWallet: box.isWallet,
+    isClosed: box.isClosed,
+    closedAt: box.isClosed ? box.updatedAt : null,
   };
 }
 
@@ -79,12 +82,14 @@ function VaultsPageInner() {
     vaultId: string;
   }>(null);
   const [newVaultOpen, setNewVaultOpen] = useState(false);
+  const [closeModal, setCloseModal] = useState<null | { vaultId: string }>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   const fetchBoxes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/boxes");
+      const res = await fetch("/api/boxes?includeClosed=1");
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setBoxes(data);
@@ -95,27 +100,67 @@ function VaultsPageInner() {
     }
   }, []);
 
+  async function handleReopen(id: string) {
+    const res = await fetch(`/api/boxes/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reopen" }),
+    });
+    if (res.ok) {
+      setToast("Box reopened.");
+      fetchBoxes();
+      setTimeout(() => setToast(null), 2500);
+    }
+  }
+
   useEffect(() => {
     fetchBoxes();
   }, [fetchBoxes]);
 
-  const vaults = boxes.map(toVaultShape);
+  const activeBoxes = boxes.filter((b) => !b.isClosed);
+  const closedBoxes = boxes.filter((b) => b.isClosed);
+  const vaults = activeBoxes.map(toVaultShape);
+  const closedVaults = closedBoxes.map(toVaultShape);
   const getBox = (id: string) => boxes.find((b) => b.id === id);
 
   return (
     <>
       <VaultsScreen
         vaults={vaults}
+        closedVaults={closedVaults}
         vaultsLoading={loading}
         vaultsError={error}
         onCreateNew={() => setNewVaultOpen(true)}
         highlightId={highlightId}
+        onCloseBox={(id) => setCloseModal({ vaultId: id })}
+        onReopenBox={handleReopen}
         setShowTransfer={setShowTransfer}
         setAddFundsModal={setAddFundsModal}
         setLockModal={setLockModal}
         setUnlockModal={setUnlockModal}
         setSoftUnlockModal={setSoftUnlockModal}
       />
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2 rounded-xl shadow-lg">
+          {toast}
+        </div>
+      )}
+      {closeModal && (
+        <ModalSheet onClose={() => setCloseModal(null)}>
+          <CloseBoxFlow
+            box={getBox(closeModal.vaultId) ?? null}
+            onClose={() => setCloseModal(null)}
+            onSuccess={(msg) => {
+              setCloseModal(null);
+              if (msg) {
+                setToast(msg);
+                setTimeout(() => setToast(null), 3000);
+              }
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
 
       {/* Transfer modal */}
       {showTransfer && (
@@ -802,6 +847,143 @@ function UnlockRequestForm({
     </div>
   );
 }
+// ── Close Box Flow ────────────────────────────────────────
+
+function CloseBoxFlow({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: (toastMessage?: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [blockers, setBlockers] = useState<string[] | null>(null);
+  const [balances, setBalances] = useState<{ balance: number; lockedAmount: number; available: number } | null>(null);
+  const [error, setError] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+
+  const currency = (n: number) =>
+    n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+  // Simulate preflight: the DELETE endpoint returns blockers if unmet.
+  // We attempt DELETE only on explicit confirmation. First render we compute
+  // a hopeful "eligible" view from local data, but the server is source of truth.
+  async function handleConfirm() {
+    if (!box) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        if (Array.isArray(data.blockers)) {
+          setBlockers(data.blockers);
+          setBalances({
+            balance: data.balance ?? 0,
+            lockedAmount: data.lockedAmount ?? 0,
+            available: data.available ?? 0,
+          });
+        } else {
+          setError(data.error ?? "Failed to close box");
+        }
+        return;
+      }
+      onSuccess(`${box.name} closed. ${currency(data.sweptToWallet ?? 0)} moved to your Wallet.`);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!box) return null;
+
+  // Local preflight — determine if we can show a confirmation first
+  const locallyEligible =
+    !box.isWallet &&
+    !box.isClosed &&
+    box.lockedAmount === 0 &&
+    box.status !== "LOCKED" &&
+    box.status !== "UNLOCK_PENDING";
+
+  const availableLocal = (box.balance - box.lockedAmount) / 100;
+
+  if (blockers) {
+    const msgMap: Record<string, string> = {
+      locked_amount: "Withdraw or transfer the available funds, then unlock the rest.",
+      status_locked: "Submit an unlock request and wait for it to resolve.",
+      pending_unlock: "Clear the pending unlock request first.",
+      active_keyholder: "Remove the keyholder from this box before closing.",
+    };
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-lg text-gray-900">Can't close this box yet</h3>
+        {balances && (
+          <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 space-y-0.5">
+            <div>Total: <span className="font-semibold">{currency(balances.balance)}</span></div>
+            <div>Locked: <span className="font-semibold">{currency(balances.lockedAmount)}</span></div>
+            <div>Available: <span className="font-semibold">{currency(balances.available)}</span></div>
+          </div>
+        )}
+        <div className="space-y-2">
+          {blockers.map((b) => (
+            <div key={b} className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-sm text-amber-800">
+              {msgMap[b] ?? b}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!confirmed) {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-lg text-gray-900">Close {box.name}?</h3>
+        <p className="text-sm text-gray-600 leading-snug">
+          Your available balance of <span className="font-semibold">{currency(availableLocal)}</span> will be moved to your Wallet.
+          This box will be archived. You can reopen it later.
+        </p>
+        <div className="bg-gray-50 rounded-xl px-4 py-3 text-sm text-gray-700 space-y-0.5">
+          <div>Available: <span className="font-semibold">{currency(availableLocal)}</span></div>
+          <div>Locked: <span className="font-semibold">{currency(box.lockedAmount / 100)}</span></div>
+        </div>
+        {!locallyEligible && (
+          <p className="text-xs text-amber-700">
+            Some conditions may need to be resolved first. Tap Close box to check.
+          </p>
+        )}
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+            Cancel
+          </button>
+          <button
+            onClick={() => { setConfirmed(true); handleConfirm(); }}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? "Closing…" : "Close box"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-6 text-center text-sm text-gray-500">
+      Closing…
+    </div>
+  );
+}
+
 // ── Transfer Form ─────────────────────────────────────────
 
 function TransferForm({

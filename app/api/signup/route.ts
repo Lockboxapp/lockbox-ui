@@ -59,6 +59,19 @@ export async function POST(req: Request) {
           balance: 850,
         },
       }),
+      // Sprint 4 — auto-create Wallet box for every new user
+      prisma.box.create({
+        data: {
+          userId: user.id,
+          name: "Wallet",
+          status: "CREATED",
+          lockType: "SOFT",
+          isWallet: true,
+          isClosed: false,
+          balance: 0,
+          lockedAmount: 0,
+        },
+      }),
     ]);
 
     // Send welcome email — non-blocking
