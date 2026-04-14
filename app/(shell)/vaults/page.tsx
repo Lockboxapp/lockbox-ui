@@ -83,6 +83,7 @@ function VaultsPageInner() {
   }>(null);
   const [newVaultOpen, setNewVaultOpen] = useState(false);
   const [closeModal, setCloseModal] = useState<null | { vaultId: string }>(null);
+  const [renameModal, setRenameModal] = useState<null | { vaultId: string }>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchBoxes = useCallback(async () => {
@@ -133,6 +134,7 @@ function VaultsPageInner() {
         onCreateNew={() => setNewVaultOpen(true)}
         highlightId={highlightId}
         onCloseBox={(id) => setCloseModal({ vaultId: id })}
+        onRenameBox={(id) => setRenameModal({ vaultId: id })}
         onReopenBox={handleReopen}
         setShowTransfer={setShowTransfer}
         setAddFundsModal={setAddFundsModal}
@@ -156,6 +158,18 @@ function VaultsPageInner() {
                 setToast(msg);
                 setTimeout(() => setToast(null), 3000);
               }
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
+      {renameModal && (
+        <ModalSheet onClose={() => setRenameModal(null)}>
+          <RenameBoxForm
+            box={getBox(renameModal.vaultId) ?? null}
+            onClose={() => setRenameModal(null)}
+            onSuccess={() => {
+              setRenameModal(null);
               fetchBoxes();
             }}
           />
@@ -420,14 +434,24 @@ function CreateBoxForm({
   const [target, setTarget] = useState("");
   const [lockUntil, setLockUntil] = useState("");
   const [selectedKeyholderId, setSelectedKeyholderId] = useState("");
+  const [initialDeposit, setInitialDeposit] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const autoLocks = lockType === "HARD" || lockType === "KEYHOLDER";
+
   async function handleSubmit() {
     if (!name.trim()) { setError("Name is required"); return; }
+    if (name.trim().length > 50) { setError("Name must be 50 characters or fewer"); return; }
     if (lockType === "KEYHOLDER" && !selectedKeyholderId) {
       setError("Select a keyholder before saving, or invite one first.");
       return;
+    }
+    let initialDepositInDollars: number | undefined;
+    if (autoLocks && initialDeposit.trim()) {
+      const n = Number(initialDeposit);
+      if (!Number.isFinite(n) || n < 1) { setError("Initial deposit must be at least $1"); return; }
+      initialDepositInDollars = n;
     }
     setLoading(true);
     try {
@@ -440,6 +464,7 @@ function CreateBoxForm({
           lockUntil: lockUntil ? new Date(lockUntil).toISOString() : undefined,
           lockType,
           keyholderRelationshipId: lockType === "KEYHOLDER" ? selectedKeyholderId : undefined,
+          initialDepositInDollars,
         }),
       });
       if (!res.ok) {
@@ -461,6 +486,7 @@ function CreateBoxForm({
         placeholder="Name (e.g. Rent — May)"
         value={name}
         onChange={(e) => setName(e.target.value)}
+        maxLength={50}
       />
       <input
         className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
@@ -475,6 +501,24 @@ function CreateBoxForm({
       )}
       {lockType === "KEYHOLDER" && (
         <KeyholderPicker selectedId={selectedKeyholderId} onChange={setSelectedKeyholderId} />
+      )}
+      {autoLocks && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-0.5">
+            Add funds now?
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            This box will be locked as soon as it's created. You can add funds now or skip and come back.
+          </p>
+          <input
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+            placeholder="Amount ($) — leave blank to skip"
+            type="number"
+            min="1"
+            value={initialDeposit}
+            onChange={(e) => setInitialDeposit(e.target.value)}
+          />
+        </div>
       )}
       {error && <p className="text-rose-600 text-sm">{error}</p>}
       <div className="flex gap-3">
@@ -847,6 +891,80 @@ function UnlockRequestForm({
     </div>
   );
 }
+// ── Rename Box Form ───────────────────────────────────────
+
+function RenameBoxForm({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [name, setName] = useState(box?.name ?? "");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    const trimmed = name.trim();
+    if (!trimmed) { setError("Name can't be empty"); return; }
+    if (trimmed.length > 50) { setError("Name must be 50 characters or fewer"); return; }
+    if (!box) return;
+    if (trimmed === box.name) { onClose(); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Rename failed");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!box) return null;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold text-lg text-gray-900">Rename box</h3>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Name</label>
+        <input
+          autoFocus
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={50}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+        />
+        <p className="text-xs text-gray-400 mt-1">{name.length}/50</p>
+      </div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Close Box Flow ────────────────────────────────────────
 
 function CloseBoxFlow({

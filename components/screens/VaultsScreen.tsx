@@ -27,6 +27,7 @@ type Props = {
   onCreateNew: () => void;
   highlightId?: string | null;
   onCloseBox?: (id: string) => void;
+  onRenameBox?: (id: string) => void;
   onReopenBox?: (id: string) => void;
   setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
   setAddFundsModal: React.Dispatch<
@@ -83,6 +84,7 @@ export default function VaultsScreen({
   onCreateNew,
   highlightId,
   onCloseBox,
+  onRenameBox,
   onReopenBox,
   setShowTransfer,
   setAddFundsModal,
@@ -207,7 +209,7 @@ export default function VaultsScreen({
                     <div className="text-right text-sm text-gray-500">
                       Locked: {currency(v.locked)}
                     </div>
-                    {onCloseBox && (
+                    {(onCloseBox || onRenameBox) && (
                       <div className="relative">
                         <button
                           onClick={() =>
@@ -225,15 +227,28 @@ export default function VaultsScreen({
                               onClick={() => setOpenMenuId(null)}
                             />
                             <div className="absolute right-0 top-8 z-20 w-40 bg-white border border-gray-200 rounded-xl shadow-lg py-1">
-                              <button
-                                onClick={() => {
-                                  setOpenMenuId(null);
-                                  onCloseBox(v.id);
-                                }}
-                                className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
-                              >
-                                Close box
-                              </button>
+                              {onRenameBox && (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    onRenameBox(v.id);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  Rename
+                                </button>
+                              )}
+                              {onCloseBox && (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    onCloseBox(v.id);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+                                >
+                                  Close box
+                                </button>
+                              )}
                             </div>
                           </>
                         )}

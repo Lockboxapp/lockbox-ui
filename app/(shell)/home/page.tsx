@@ -186,10 +186,23 @@ export default async function HomePage() {
       b.lockUntil,
   );
 
+  // Sprint 5: empty-locked nudge takes highest priority — HARD/KEYHOLDER box created but unfunded
+  const emptyLockedBox = boxes.find(
+    (b) =>
+      (b.lockType === "HARD" || b.lockType === "KEYHOLDER") &&
+      b.status === "LOCKED" &&
+      b.balance === 0,
+  );
+
   // Sprint 4: Wallet-low nudge — fires when Wallet < $20 and there's money protected in boxes
   const walletLow = walletBalance < 2000 && protectedInBoxes > 0;
 
-  if (unlockPendingQualifier) {
+  if (emptyLockedBox) {
+    bankerInsight = {
+      type: "behind_target",
+      message: `You created ${emptyLockedBox.name} to lock away some money. Let's start doing that.`,
+    };
+  } else if (unlockPendingQualifier) {
     bankerInsight = {
       type: "unlock_pending",
       message: "You have a pending unlock request. Think carefully before proceeding.",

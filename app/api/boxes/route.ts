@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, lockUntil, lockType, keyholderRelationshipId } = body;
+    const { name, description, targetAmount, lockUntil, lockType, keyholderRelationshipId, initialDepositInDollars } = body;
 
     // Validate lockType
     const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
@@ -103,6 +103,16 @@ export async function POST(req: NextRequest) {
     if (!name || typeof name !== "string" || name.trim() === "") {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
+    if (name.trim().length > 50) {
+      return NextResponse.json({ error: "Name must be 50 characters or fewer" }, { status: 400 });
+    }
+
+    // Sprint 5 — HARD and KEYHOLDER boxes auto-lock at creation
+    const autoLock = resolvedLockType === "HARD" || resolvedLockType === "KEYHOLDER";
+    const initialDepositCents =
+      typeof initialDepositInDollars === "number" && Number.isFinite(initialDepositInDollars) && initialDepositInDollars >= 1
+        ? Math.round(initialDepositInDollars * 100)
+        : 0;
 
     const box = await prisma.box.create({
       data: {
@@ -111,11 +121,26 @@ export async function POST(req: NextRequest) {
         targetAmount: targetAmount ? Math.round(targetAmount * 100) : null,
         lockType: resolvedLockType,
         lockUntil: lockUntil ? new Date(lockUntil) : null,
-        status: BOX_STATUS.CREATED,
+        status: autoLock ? BOX_STATUS.LOCKED : BOX_STATUS.CREATED,
+        balance: initialDepositCents,
+        lockedAmount: autoLock ? initialDepositCents : 0,
         userId: session.user.id,
         isWallet: false, // Wallet is only created via signup or lazy-backfill
       },
     });
+
+    // Record the initial deposit as a Transaction for activity feed
+    if (initialDepositCents > 0) {
+      await prisma.transaction.create({
+        data: {
+          userId: session.user.id,
+          boxId: box.id,
+          type: "DEPOSIT",
+          amount: initialDepositCents,
+          description: `Initial deposit to ${box.name}`,
+        },
+      });
+    }
 
     // If the user has a Unit customer ID, create a deposit account for this box
     if (user.unitCustomerId) {
