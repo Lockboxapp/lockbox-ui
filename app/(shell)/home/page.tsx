@@ -61,8 +61,11 @@ export default async function HomePage() {
           name: true,
           status: true,
           balance: true,
+          lockedAmount: true,
+          lockType: true,
           targetAmount: true,
           lockUntil: true,
+          isPriority: true,
           updatedAt: true,
         },
       }),
@@ -96,10 +99,9 @@ export default async function HomePage() {
     ]);
 
   // ── 1. Snapshot ──────────────────────────────────────────────────────────
+  // lockedAmount is the source of truth for partial lock enforcement (Sprint 2).
   const totalSaved = boxes.reduce((sum, b) => sum + b.balance, 0);
-  const totalLocked = boxes
-    .filter((b) => LOCKED_STATUSES.includes(b.status))
-    .reduce((sum, b) => sum + b.balance, 0);
+  const totalLocked = boxes.reduce((sum, b) => sum + b.lockedAmount, 0);
   const availableToMove = totalSaved - totalLocked;
 
   const nextDueBox = boxes
@@ -146,35 +148,55 @@ export default async function HomePage() {
     }
   }
 
-  // ── 3. Priority Boxes (top 3 by urgency score) ───────────────────────────
+  // ── 3. Priority Boxes (Sprint 2 Fix 4: tightened criteria) ──────────────
+  // A box qualifies if:
+  //   1. status === UNLOCK_PENDING, OR
+  //   2. lockUntil within 7 days AND balance < targetAmount, OR
+  //   3. lockUntil within 14 days AND balance < 80% of targetAmount, OR
+  //   4. isPriority === true (manually pinned)
   const scoredBoxes = boxes.map((b) => {
     const dueDays = dueDaysFrom(b.lockUntil);
     const progressPercent = b.targetAmount
       ? Math.min(100, Math.round((b.balance / b.targetAmount) * 100))
       : null;
 
-    let score = 0;
-    if (b.status === "UNLOCK_PENDING") score += 5;
-    if (dueDays !== null && dueDays <= 7) score += 4;
-    else if (dueDays !== null && dueDays <= 14) score += 2;
-    if (b.targetAmount && b.balance < b.targetAmount) score += 2;
+    const hasDue = b.lockUntil !== null && dueDays !== null;
+    const qualifiesUnlockPending = b.status === "UNLOCK_PENDING";
+    const qualifiesDue7 =
+      hasDue && dueDays! <= 7 && b.targetAmount != null && b.balance < b.targetAmount;
+    const qualifiesDue14 =
+      hasDue && dueDays! <= 14 && b.targetAmount != null && b.balance < b.targetAmount * 0.8;
+    const qualifiesPinned = b.isPriority === true;
 
-    // Fix 5 — contextual urgency label instead of abstract high/medium/low
+    const qualifies =
+      qualifiesUnlockPending || qualifiesDue7 || qualifiesDue14 || qualifiesPinned;
+
+    // Urgency score — only used for ranking among qualifying boxes
+    let score = 0;
+    if (qualifiesUnlockPending) score += 5;
+    if (hasDue && dueDays! <= 7) score += 4;
+    else if (hasDue && dueDays! <= 14) score += 2;
+    if (b.targetAmount && b.balance < b.targetAmount) score += 2;
+    if (qualifiesPinned) score += 1;
+
+    // Contextual urgency label
     let urgencyLabel: string | null = null;
-    if (b.status === "UNLOCK_PENDING") urgencyLabel = "Unlock pending";
-    else if (dueDays !== null && dueDays <= 14) urgencyLabel = `Due in ${dueDays}d`;
+    if (qualifiesUnlockPending) urgencyLabel = "Unlock pending";
+    else if (hasDue && dueDays! <= 14) urgencyLabel = `Due in ${dueDays}d`;
     else if (b.targetAmount && b.balance < b.targetAmount * 0.8) urgencyLabel = "Behind target";
 
-    return { ...b, dueDays, progressPercent, urgencyLabel, score };
+    return { ...b, dueDays, progressPercent, urgencyLabel, score, qualifies };
   });
 
   const priorityBoxes = scoredBoxes
+    .filter((b) => b.qualifies)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
-  // ── 4. Today's Actions (deterministic only) ───────────────────────────────
+  // ── 4. Today's Actions (Sprint 2 Fix 5: tightened logic) ────────────────
+  // "Add funds" only fires for boxes that are LOCKED + have lockUntil + due within 14d + below 80% target.
   type ActionType = "unlock_request" | "underfunded_box";
-  const todaysActions: Array<{ type: ActionType; label: string; targetId: string }> = [];
+  const todaysActions: Array<{ type: ActionType; label: string; targetId: string; href: string }> = [];
 
   if (pendingUnlockRequests.length > 0) {
     const count = pendingUnlockRequests.length;
@@ -182,22 +204,25 @@ export default async function HomePage() {
       type: "unlock_request",
       label: `Review ${count} pending unlock request${count > 1 ? "s" : ""}`,
       targetId: pendingUnlockRequests[0].box.id,
+      href: `/vaults?box=${pendingUnlockRequests[0].box.id}`,
     });
   }
 
-  const underfundedBoxes = boxes.filter(
-    (b) =>
-      b.targetAmount &&
-      b.balance < b.targetAmount &&
-      b.lockUntil &&
-      new Date(b.lockUntil) > now
-  );
+  const underfundedBoxes = boxes.filter((b) => {
+    if (b.status !== "LOCKED") return false;
+    if (!b.lockUntil) return false;
+    if (!b.targetAmount) return false;
+    const dueDays = dueDaysFrom(b.lockUntil);
+    if (dueDays === null || dueDays > 14) return false;
+    return b.balance < b.targetAmount * 0.8;
+  });
 
   for (const box of underfundedBoxes.slice(0, 2)) {
     todaysActions.push({
       type: "underfunded_box",
       label: `Add funds to ${box.name} to stay on track`,
       targetId: box.id,
+      href: `/vaults?box=${box.id}`,
     });
   }
 
@@ -265,9 +290,10 @@ export default async function HomePage() {
         )}
       </div>
 
-      {/* ── 3. Banker Insight ── */}
-      <div
-        className={`rounded-2xl p-4 border flex items-start gap-3 ${
+      {/* ── 3. Banker Insight (Fix 7: tappable) ── */}
+      <Link
+        href="/banker"
+        className={`block rounded-2xl p-4 border cursor-pointer hover:shadow-sm transition-shadow ${
           bankerInsight.type === "unlock_pending"
             ? "bg-amber-50 border-amber-200"
             : bankerInsight.type === "behind_target"
@@ -275,32 +301,42 @@ export default async function HomePage() {
             : "bg-emerald-50 border-emerald-200"
         }`}
       >
-        <span className="text-base mt-0.5 flex-shrink-0">
-          {bankerInsight.type === "unlock_pending"
-            ? "⏳"
-            : bankerInsight.type === "behind_target"
-            ? "📉"
-            : "✓"}
-        </span>
-        <div>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
-            The Banker
-          </div>
-          <div className="text-sm font-medium text-gray-800 leading-snug">
-            {bankerInsight.message}
+        <div className="flex items-start gap-3">
+          <span className="text-base mt-0.5 shrink-0">
+            {bankerInsight.type === "unlock_pending"
+              ? "⏳"
+              : bankerInsight.type === "behind_target"
+              ? "📉"
+              : "✓"}
+          </span>
+          <div className="flex-1">
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+              The Banker
+            </div>
+            <div className="text-sm font-medium text-gray-800 leading-snug">
+              {bankerInsight.message}
+            </div>
+            <div className="text-xs text-gray-500 mt-2 font-medium">
+              Chat with The Banker ›
+            </div>
           </div>
         </div>
-      </div>
+      </Link>
 
-      {/* ── 4. Priority Boxes ── */}
-      {priorityBoxes.length > 0 && (
-        <div>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-            Priority Boxes
+      {/* ── 4. Priority Boxes (Fix 4: tightened + empty state; Fix 6: deep link) ── */}
+      <div>
+        <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+          Priority Boxes
+        </div>
+        {priorityBoxes.length === 0 ? (
+          <div className="bg-white border border-gray-100 rounded-2xl px-4 py-5 text-center shadow-sm">
+            <div className="text-sm text-gray-600 font-medium">No priority boxes right now</div>
+            <div className="text-xs text-gray-400 mt-0.5">Your important boxes are on track.</div>
           </div>
+        ) : (
           <div className="space-y-3">
             {priorityBoxes.map((box) => (
-              <Link key={box.id} href="/vaults" className="block">
+              <Link key={box.id} href={`/vaults?box=${box.id}`} className="block">
               <div
                 className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm active:scale-[0.98] transition-transform"
               >
@@ -309,7 +345,7 @@ export default async function HomePage() {
                     <div className="font-semibold text-gray-900 text-sm leading-tight">
                       {box.name}
                     </div>
-                    {box.dueDays !== null && (
+                    {box.lockUntil && box.dueDays !== null ? (
                       <div
                         className={`text-xs mt-0.5 ${
                           box.dueDays <= 0
@@ -325,6 +361,8 @@ export default async function HomePage() {
                           ? "Due today"
                           : `Due in ${box.dueDays}d`}
                       </div>
+                    ) : (
+                      <div className="text-xs mt-0.5 text-gray-400">Open-ended</div>
                     )}
                   </div>
                   {box.urgencyLabel && (
@@ -366,27 +404,29 @@ export default async function HomePage() {
               </Link>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ── 5. Today's Actions ── */}
+      {/* ── 5. Today's Actions (Fix 1: clickable + chevron; Fix 5 logic applied) ── */}
       <div>
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
           {"Today's Actions"}
         </div>
         {todaysActions.length === 0 ? (
-          <div className="bg-white border border-gray-100 rounded-2xl px-4 py-5 text-sm text-gray-400 text-center shadow-sm">
-            {"No actions needed. You're on track."}
+          <div className="bg-white border border-gray-100 rounded-2xl px-4 py-5 text-center shadow-sm">
+            <div className="text-sm text-gray-600 font-medium">{"You're all caught up. Stay consistent."}</div>
+            <div className="text-xs text-gray-400 italic mt-1">— The Banker</div>
           </div>
         ) : (
           <div className="space-y-2">
             {todaysActions.map((action, i) => (
-              <div
+              <Link
                 key={i}
-                className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm"
+                href={action.href}
+                className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-sm hover:bg-gray-50 cursor-pointer transition-colors"
               >
                 <div
-                  className={`h-8 w-8 rounded-xl flex items-center justify-center flex-shrink-0 text-sm ${
+                  className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 text-sm ${
                     action.type === "unlock_request"
                       ? "bg-amber-100"
                       : "bg-blue-100"
@@ -394,10 +434,11 @@ export default async function HomePage() {
                 >
                   {action.type === "unlock_request" ? "🔓" : "💰"}
                 </div>
-                <div className="text-sm font-medium text-gray-800 leading-snug">
+                <div className="flex-1 text-sm font-medium text-gray-800 leading-snug">
                   {action.label}
                 </div>
-              </div>
+                <div className="text-gray-300 text-lg shrink-0">›</div>
+              </Link>
             ))}
           </div>
         )}

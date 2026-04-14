@@ -211,8 +211,10 @@ model Box {
   status       String    @default("CREATED") // see status flow above
   lockType   LockType  @default(SOFT)
   balance      Int       @default(0) // stored in cents
+  lockedAmount Int       @default(0) // cents — how much of balance is locked (source of truth for partial lock)
   targetAmount Int? // stored in cents, optional goal
   lockUntil    DateTime? // null until box is locked
+  isPriority   Boolean   @default(false) // manually pinned to priority by user
 
   userId String
   user   User   @relation(fields: [userId], references: [id])

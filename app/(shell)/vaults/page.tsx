@@ -5,7 +5,8 @@
 
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import VaultsScreen from "@/components/screens/VaultsScreen";
 
@@ -13,6 +14,7 @@ type Box = {
   id: string;
   name: string;
   balance: number;
+  lockedAmount: number;
   targetAmount: number | null;
   lockUntil: string | null;
   status: string;
@@ -42,6 +44,24 @@ function toVaultShape(box: Box) {
 }
 
 export default function VaultsPage() {
+  return (
+    <Suspense fallback={<div className="px-4 py-5 text-sm text-gray-400">Loading…</div>}>
+      <VaultsPageInner />
+    </Suspense>
+  );
+}
+
+function VaultsPageInner() {
+  const searchParams = useSearchParams();
+  const boxParam = searchParams.get("box");
+  const [highlightId, setHighlightId] = useState<string | null>(boxParam);
+
+  // Fade out highlight after 2s (Fix 6 — temporary + obvious)
+  useEffect(() => {
+    if (!highlightId) return;
+    const t = setTimeout(() => setHighlightId(null), 2000);
+    return () => clearTimeout(t);
+  }, [highlightId]);
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +109,7 @@ export default function VaultsPage() {
         vaultsLoading={loading}
         vaultsError={error}
         onCreateNew={() => setNewVaultOpen(true)}
+        highlightId={highlightId}
         setShowTransfer={setShowTransfer}
         setAddFundsModal={setAddFundsModal}
         setLockModal={setLockModal}
@@ -147,6 +168,7 @@ export default function VaultsPage() {
           <h3 className="font-semibold text-lg mb-4">Lock Safe Deposit Box</h3>
           <LockForm
             boxId={lockModal.vaultId}
+            boxBalance={getBox(lockModal.vaultId)?.balance ?? 0}
             onClose={() => setLockModal(null)}
             onSuccess={() => {
               setLockModal(null);
@@ -498,10 +520,12 @@ function DepositForm({
 
 function LockForm({
   boxId,
+  boxBalance,
   onClose,
   onSuccess,
 }: {
   boxId: string;
+  boxBalance: number; // cents
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -510,6 +534,17 @@ function LockForm({
   const [error, setError] = useState("");
   const [lockType, setLockType] = useState("SOFT");
   const [selectedKeyholderId, setSelectedKeyholderId] = useState("");
+  const balanceDollars = boxBalance / 100;
+  // Default to full balance locked
+  const [lockAmount, setLockAmount] = useState<string>(balanceDollars.toString());
+
+  // For HARD/KEYHOLDER, lockedAmount is always full balance (server enforces too)
+  const showAmountSelector = lockType === "SOFT" && boxBalance > 0;
+
+  const setChip = (pct: 0.25 | 0.5 | 0.75 | 1) => {
+    const v = Math.max(1, Math.round(balanceDollars * pct));
+    setLockAmount(String(v));
+  };
 
   async function handleSubmit() {
     // Only require a date for HARD and KEYHOLDER
@@ -521,6 +556,13 @@ function LockForm({
       setError("Select a keyholder before locking, or invite one first.");
       return;
     }
+    let lockedAmountInDollars: number | undefined = undefined;
+    if (showAmountSelector) {
+      const n = Number(lockAmount);
+      if (!Number.isFinite(n) || n < 1) { setError("Lock amount must be at least $1"); return; }
+      if (n > balanceDollars) { setError(`Lock amount cannot exceed balance of $${balanceDollars}`); return; }
+      lockedAmountInDollars = n;
+    }
     setLoading(true);
     try {
       const res = await fetch(`/api/boxes/${boxId}`, {
@@ -531,6 +573,7 @@ function LockForm({
           lockUntil: lockUntil ? new Date(lockUntil).toISOString() : undefined,
           lockType,
           keyholderRelationshipId: lockType === "KEYHOLDER" ? selectedKeyholderId : undefined,
+          lockedAmountInDollars,
         }),
       });
       if (!res.ok) {
@@ -545,6 +588,10 @@ function LockForm({
     }
   }
 
+  const remaining = showAmountSelector
+    ? Math.max(0, balanceDollars - Number(lockAmount || 0))
+    : 0;
+
   return (
     <div className="space-y-4">
       <LockTypeSelector lockType={lockType} onChange={setLockType} />
@@ -553,6 +600,36 @@ function LockForm({
       )}
       {lockType === "KEYHOLDER" && (
         <KeyholderPicker selectedId={selectedKeyholderId} onChange={setSelectedKeyholderId} />
+      )}
+      {showAmountSelector && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            How much do you want to lock?
+          </label>
+          <input
+            type="number"
+            min="1"
+            max={balanceDollars}
+            value={lockAmount}
+            onChange={(e) => setLockAmount(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+          />
+          <div className="flex gap-2 mt-2">
+            {([["25%", 0.25], ["50%", 0.5], ["75%", 0.75], ["All", 1]] as const).map(([label, pct]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setChip(pct)}
+                className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            ${remaining.toLocaleString(undefined, { maximumFractionDigits: 0 })} will remain available.
+          </p>
+        </div>
       )}
       {error && <p className="text-rose-600 text-sm">{error}</p>}
       <div className="flex gap-3">

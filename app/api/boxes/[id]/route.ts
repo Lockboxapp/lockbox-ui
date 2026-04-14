@@ -87,7 +87,7 @@ export async function PATCH(
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, action, lockUntil, lockType, keyholderRelationshipId } =
+    const { name, description, targetAmount, action, lockUntil, lockType, keyholderRelationshipId, lockedAmountInDollars } =
       body;
 
     // --------------------------------------------------------
@@ -123,9 +123,23 @@ export async function PATCH(
         );
       }
 
+      // Partial lock: SOFT respects user-chosen lockedAmount; HARD/KEYHOLDER locks entire balance.
+      let lockedAmount: number;
+      if (resolvedLockType === "SOFT") {
+        if (typeof lockedAmountInDollars === "number" && Number.isFinite(lockedAmountInDollars)) {
+          const requested = Math.round(lockedAmountInDollars * 100);
+          lockedAmount = Math.max(0, Math.min(box.balance, requested));
+        } else {
+          lockedAmount = box.balance;
+        }
+      } else {
+        lockedAmount = box.balance;
+      }
+
       const lockData: Record<string, unknown> = {
         status: BOX_STATUS.LOCKED,
         lockType: resolvedLockType,
+        lockedAmount,
       };
       if (lockUntil) lockData.lockUntil = new Date(lockUntil);
 
@@ -174,6 +188,7 @@ export async function PATCH(
         data: {
           status: "CREATED",
           lockUntil: null,
+          lockedAmount: 0,
         },
       });
 

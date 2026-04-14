@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Box" ADD COLUMN     "isPriority" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "lockedAmount" INTEGER NOT NULL DEFAULT 0;

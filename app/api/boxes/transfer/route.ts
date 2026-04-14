@@ -96,10 +96,16 @@ export async function POST(req: NextRequest) {
     }
 
     const amountInCents = Math.round(amtNum * 100);
+    // Partial-lock enforcement via lockedAmount (SOFT source of truth)
+    const available = fromBox.balance - fromBox.lockedAmount;
 
-    if (fromBox.balance < amountInCents) {
+    if (amountInCents > available) {
       return NextResponse.json(
-        { error: "Insufficient balance in source box" },
+        {
+          error: "Amount exceeds available (unlocked) balance in source box",
+          message: `$${(available / 100).toLocaleString()} is available. The rest is locked.`,
+          available: available / 100,
+        },
         { status: 400 },
       );
     }

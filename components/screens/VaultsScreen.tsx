@@ -21,6 +21,7 @@ type Props = {
   vaultsLoading: boolean;
   vaultsError: string | null;
   onCreateNew: () => void;
+  highlightId?: string | null;
   setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
   setAddFundsModal: React.Dispatch<
     React.SetStateAction<null | { vaultId: string }>
@@ -35,6 +36,20 @@ type Props = {
     React.SetStateAction<null | { vaultId: string }>
   >;
 };
+
+function LockTypeBadge({ lockType }: { lockType?: string }) {
+  const config =
+    lockType === "HARD"
+      ? { label: "Fully locked", cls: "bg-emerald-100 text-emerald-700" }
+      : lockType === "KEYHOLDER"
+      ? { label: "Keyholder", cls: "bg-amber-100 text-amber-700" }
+      : { label: "Flexible", cls: "bg-gray-100 text-gray-600" };
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${config.cls}`}>
+      {config.label}
+    </span>
+  );
+}
 
 const currency = (n: number | null | undefined) =>
   typeof n === "number" && !Number.isNaN(n)
@@ -59,6 +74,7 @@ export default function VaultsScreen({
   vaultsLoading,
   vaultsError,
   onCreateNew,
+  highlightId,
   setShowTransfer,
   setAddFundsModal,
   setLockModal,
@@ -113,12 +129,27 @@ export default function VaultsScreen({
         <>
           {vaults.map((v) => {
             const pct = (v.saved / Math.max(1, v.target)) * 100;
+            const isHighlighted = highlightId === v.id;
             return (
-              <Card key={v.id} className="p-4">
+              <div
+                key={v.id}
+                ref={(el) => {
+                  if (isHighlighted && el) {
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }
+                }}
+                className={`transition-all rounded-2xl ${
+                  isHighlighted ? "ring-2 ring-emerald-500 ring-offset-2" : ""
+                }`}
+              >
+              <Card className="p-4">
                 {/* Row: title + locked */}
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="font-semibold">{v.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="font-semibold">{v.name}</div>
+                      <LockTypeBadge lockType={v.lockType} />
+                    </div>
                     <div className="text-sm text-gray-500">
                       {currency(v.target)}
                       {v.dueDays ? ` due in ${v.dueDays} days` : " target"}
@@ -207,6 +238,7 @@ export default function VaultsScreen({
                   </div>
                 </div>
               </Card>
+              </div>
             );
           })}
         </>

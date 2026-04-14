@@ -64,7 +64,7 @@ export async function POST(
       );
     }
 
-    // SOFT — allowed, frontend handles friction
+    // SOFT — partial lock enforcement via lockedAmount (source of truth)
     const body = await req.json();
     const { amountInDollars } = body;
 
@@ -76,10 +76,16 @@ export async function POST(
     }
 
     const amountInCents = Math.round(amountInDollars * 100);
+    const available = box.balance - box.lockedAmount;
 
-    if (box.balance < amountInCents) {
+    if (amountInCents > available) {
       return NextResponse.json(
-        { error: "Insufficient balance" },
+        {
+          error: "Amount exceeds available (unlocked) balance",
+          message: `$${(available / 100).toLocaleString()} is available. The rest is locked.`,
+          available: available / 100,
+          lockedAmount: box.lockedAmount / 100,
+        },
         { status: 400 },
       );
     }
