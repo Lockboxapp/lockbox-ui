@@ -98,6 +98,51 @@ export async function PATCH(
       );
     }
 
+    // Sprint 7 — safety fallback: switch a KEYHOLDER box to SOFT (Flexible)
+    // ONLY permitted when no active keyholder is attached to the box.
+    // Preserves lockedAmount — user can then self-unlock via SOFT confirmation.
+    if (action === "switchToFlexible") {
+      if (box.isWallet) {
+        return NextResponse.json({ error: "Wallet can't change protection type." }, { status: 400 });
+      }
+      if (box.lockType !== "KEYHOLDER") {
+        return NextResponse.json(
+          { error: "Only KEYHOLDER boxes can switch to Flexible via this path." },
+          { status: 400 },
+        );
+      }
+      const hasActive = await prisma.keyholderRelationship.findFirst({
+        where: {
+          userId: session.user.id,
+          status: "ACTIVE",
+          OR: [
+            { scopeType: "ALL" },
+            { scopeType: "SELECTED", boxes: { some: { boxId: id } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (hasActive) {
+        return NextResponse.json(
+          { error: "This box has an active keyholder. Remove them before changing protection." },
+          { status: 400 },
+        );
+      }
+      const updated = await prisma.box.update({
+        where: { id },
+        data: { lockType: "SOFT" },
+      });
+      await prisma.auditEvent.create({
+        data: {
+          actor: "USER",
+          actorId: session.user.id,
+          action: "SWITCHED_TO_FLEXIBLE",
+          targetId: id,
+        },
+      });
+      return NextResponse.json(updated);
+    }
+
     // Sprint 4 — reopen a closed box
     if (action === "reopen") {
       if (!box.isClosed) {
@@ -246,6 +291,26 @@ export async function PATCH(
     // --------------------------------------------------------
     const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
 
+    // Sprint 7 — due date edits only allowed on SOFT, non-wallet boxes.
+    // HARD/KEYHOLDER lockUntil can only be set via the lock action at creation/lock time.
+    if (lockUntil !== undefined) {
+      if (box.isWallet) {
+        return NextResponse.json({ error: "Wallet has no due date." }, { status: 400 });
+      }
+      if (box.lockType !== "SOFT") {
+        return NextResponse.json(
+          { error: "Only Flexible (SOFT) boxes can edit the due date." },
+          { status: 400 },
+        );
+      }
+      if (lockUntil !== null && new Date(lockUntil) <= new Date()) {
+        return NextResponse.json(
+          { error: "lockUntil must be a future date." },
+          { status: 400 },
+        );
+      }
+    }
+
     const updatedBox = await prisma.box.update({
       where: { id: id },
       data: {
@@ -255,6 +320,9 @@ export async function PATCH(
           targetAmount: targetAmount ? Math.round(targetAmount * 100) : null,
         }),
         ...(lockType && validLockTypes.includes(lockType) && { lockType }),
+        ...(lockUntil !== undefined && {
+          lockUntil: lockUntil ? new Date(lockUntil) : null,
+        }),
       },
     });
 

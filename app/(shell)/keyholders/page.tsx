@@ -66,6 +66,19 @@ export default function KeyholdersPage() {
         }
       })
       .catch(() => {});
+
+    // Sprint 7 — refetch when the user returns to the tab so ACTIVE status updates
+    // immediately after a keyholder accepts via email in another tab/window.
+    const onFocus = () => fetchRelationships();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") fetchRelationships();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   async function fetchRelationships() {

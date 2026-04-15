@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
       requestType = "UNLOCK",
       transferAmountInDollars,
       destinationBoxId,
+      keyholderRelationshipId,
     } = body;
 
     if (!boxId || !reason) {
@@ -120,6 +121,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Sprint 7 — KEYHOLDER requests require an active keyholder destination BEFORE we create anything.
+    if (box.lockType === "KEYHOLDER") {
+      const preCheck = await prisma.keyholderRelationship.findFirst({
+        where: {
+          userId: session.user.id,
+          status: "ACTIVE",
+          OR: [
+            { scopeType: "ALL" },
+            { scopeType: "SELECTED", boxes: { some: { boxId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!preCheck) {
+        return NextResponse.json(
+          {
+            error: "No active keyholder attached to this box.",
+            code: "no_active_keyholder",
+          },
+          { status: 400 },
+        );
+      }
+    }
+
     // Only one pending request allowed at a time
     if (box.unlockRequests.length > 0) {
       return NextResponse.json(
@@ -171,22 +196,52 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Notify keyholder via email if one exists
-    // Find active keyholder relationship for this box
-    const activeRelationship = await prisma.keyholderRelationship.findFirst({
-      where: {
-        userId: session.user.id,
-        status: "ACTIVE",
-        OR: [
-          { scopeType: "ALL" },
-          {
-            scopeType: "SELECTED",
-            boxes: { some: { boxId: boxId } },
-          },
-        ],
-      },
-      include: { profile: true },
-    });
+    // Notify keyholder via email. If the client specified a particular relationship,
+    // honor that choice (validated below); otherwise pick the first eligible ACTIVE one.
+    type KHWithProfile = {
+      id: string;
+      profile: { email: string; name: string | null };
+    };
+    let activeRelationship: KHWithProfile | null = null;
+    if (keyholderRelationshipId) {
+      activeRelationship = await prisma.keyholderRelationship.findFirst({
+        where: {
+          id: keyholderRelationshipId,
+          userId: session.user.id,
+          status: "ACTIVE",
+          OR: [
+            { scopeType: "ALL" },
+            { scopeType: "SELECTED", boxes: { some: { boxId } } },
+          ],
+        },
+        include: { profile: true },
+      });
+    }
+    if (!activeRelationship) {
+      activeRelationship = await prisma.keyholderRelationship.findFirst({
+        where: {
+          userId: session.user.id,
+          status: "ACTIVE",
+          OR: [
+            { scopeType: "ALL" },
+            { scopeType: "SELECTED", boxes: { some: { boxId } } },
+          ],
+        },
+        include: { profile: true },
+      });
+    }
+
+    // Sprint 7 — KEYHOLDER boxes cannot create an unlock or transfer request without
+    // an active keyholder to receive it. Block at the server so stale clients can't bypass.
+    if (box.lockType === "KEYHOLDER" && !activeRelationship) {
+      return NextResponse.json(
+        {
+          error: "No active keyholder attached to this box.",
+          code: "no_active_keyholder",
+        },
+        { status: 400 },
+      );
+    }
 
     if (activeRelationship) {
       if (isTransfer && destinationBox) {
@@ -230,10 +285,12 @@ export async function POST(req: NextRequest) {
     // The approvalToken is: unlockRequest.approvalToken
     // NEVER send the approvalToken to the box owner under any circumstance
 
-    // Return the request WITHOUT the approvalToken
+    // Return the request WITHOUT the approvalToken, plus the keyholder display name
     const { approvalToken: _, ...safeRequest } = unlockRequest;
+    const keyholderName =
+      activeRelationship?.profile.name ?? activeRelationship?.profile.email ?? null;
 
-    return NextResponse.json(safeRequest, { status: 201 });
+    return NextResponse.json({ ...safeRequest, keyholderName }, { status: 201 });
   } catch (error) {
     console.error("[POST /api/unlock-requests]", error);
     return NextResponse.json(

@@ -29,6 +29,7 @@ type Props = {
   highlightId?: string | null;
   onCloseBox?: (id: string) => void;
   onRenameBox?: (id: string) => void;
+  onEditDueDate?: (id: string) => void;
   onReopenBox?: (id: string) => void;
   setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
   setAddFundsModal: React.Dispatch<
@@ -86,6 +87,7 @@ export default function VaultsScreen({
   highlightId,
   onCloseBox,
   onRenameBox,
+  onEditDueDate,
   onReopenBox,
   setShowTransfer,
   setAddFundsModal,
@@ -210,7 +212,7 @@ export default function VaultsScreen({
                     <div className="text-right text-sm text-gray-500">
                       Locked: {currency(v.locked)}
                     </div>
-                    {(onCloseBox || onRenameBox) && (
+                    {(onCloseBox || onRenameBox || onEditDueDate) && (
                       <div className="relative">
                         <button
                           onClick={() =>
@@ -237,6 +239,18 @@ export default function VaultsScreen({
                                   className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                                 >
                                   Rename
+                                </button>
+                              )}
+                              {/* Sprint 7 — edit due date, SOFT only */}
+                              {onEditDueDate && v.lockType === "SOFT" && (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    onEditDueDate(v.id);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  Edit due date
                                 </button>
                               )}
                               {onCloseBox && (

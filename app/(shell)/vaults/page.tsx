@@ -6,7 +6,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import VaultsScreen from "@/components/screens/VaultsScreen";
 
@@ -39,12 +39,13 @@ function toVaultShape(box: Box) {
         )
       : null,
     isLocked: box.status === "LOCKED" || box.status === "UNLOCK_PENDING",
-    // Hotfix: HARD/KEYHOLDER boxes always render as locked regardless of status
+    // Sprint 7 refinement: HARD/KEYHOLDER render as locked when their locked amount is real.
+    // After a HARD self-unlock (lockedAmount = 0), the box visibly unlocks. After a
+    // switch-to-Flexible fallback, enforcement follows the new lockType.
     effectivelyLocked:
       box.status === "LOCKED" ||
       box.status === "UNLOCK_PENDING" ||
-      box.lockType === "HARD" ||
-      box.lockType === "KEYHOLDER",
+      ((box.lockType === "HARD" || box.lockType === "KEYHOLDER") && (box.lockedAmount ?? 0) > 0),
     lockType: box.lockType ?? "SOFT",
     isWallet: box.isWallet,
     isClosed: box.isClosed,
@@ -90,6 +91,7 @@ function VaultsPageInner() {
   const [newVaultOpen, setNewVaultOpen] = useState(false);
   const [closeModal, setCloseModal] = useState<null | { vaultId: string }>(null);
   const [renameModal, setRenameModal] = useState<null | { vaultId: string }>(null);
+  const [dueDateModal, setDueDateModal] = useState<null | { vaultId: string }>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const fetchBoxes = useCallback(async () => {
@@ -141,6 +143,7 @@ function VaultsPageInner() {
         highlightId={highlightId}
         onCloseBox={(id) => setCloseModal({ vaultId: id })}
         onRenameBox={(id) => setRenameModal({ vaultId: id })}
+        onEditDueDate={(id) => setDueDateModal({ vaultId: id })}
         onReopenBox={handleReopen}
         setShowTransfer={setShowTransfer}
         setAddFundsModal={setAddFundsModal}
@@ -176,6 +179,20 @@ function VaultsPageInner() {
             onClose={() => setRenameModal(null)}
             onSuccess={() => {
               setRenameModal(null);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
+      {dueDateModal && (
+        <ModalSheet onClose={() => setDueDateModal(null)}>
+          <EditDueDateForm
+            box={getBox(dueDateModal.vaultId) ?? null}
+            onClose={() => setDueDateModal(null)}
+            onSuccess={() => {
+              setDueDateModal(null);
+              setToast("Due date updated.");
+              setTimeout(() => setToast(null), 2500);
               fetchBoxes();
             }}
           />
@@ -260,6 +277,7 @@ function VaultsPageInner() {
           <h3 className="font-semibold text-lg mb-4">Add Funds</h3>
           <DepositForm
             boxId={addFundsModal.vaultId}
+            allBoxes={boxes}
             onClose={() => setAddFundsModal(null)}
             onSuccess={() => {
               setAddFundsModal(null);
@@ -315,7 +333,13 @@ function VaultsPageInner() {
               box={box}
               allBoxes={boxes}
               onClose={close}
-              onSuccess={success}
+              onSuccess={(msg) => {
+                if (msg) {
+                  setToast(msg);
+                  setTimeout(() => setToast(null), 3000);
+                }
+                success();
+              }}
             />
           </ModalSheet>
         );
@@ -611,32 +635,59 @@ function CreateBoxForm({
 
 function DepositForm({
   boxId,
+  allBoxes,
   onClose,
   onSuccess,
 }: {
   boxId: string;
+  allBoxes: Box[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  // Sprint 7 — source selection step first. Wallet internal allocation vs fresh external deposit.
+  type Source = "wallet" | "external";
+  const targetBox = allBoxes.find((b) => b.id === boxId);
+  const wallet = allBoxes.find((b) => b.isWallet);
+  const walletDollars = wallet ? wallet.balance / 100 : 0;
+  // If target IS the Wallet, only external deposit makes sense
+  const targetIsWallet = !!targetBox?.isWallet;
+
+  const [source, setSource] = useState<Source | null>(targetIsWallet ? "external" : null);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const currency = (n: number) =>
+    n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
   async function handleSubmit() {
-    if (!amount || Number(amount) < 1) {
-      setError("Minimum $1");
+    setError("");
+    const amt = Number(amount);
+    if (!amt || amt < 1) { setError("Minimum $1"); return; }
+    if (source === "wallet" && amt > walletDollars) {
+      setError(`Wallet has ${currency(walletDollars)} available.`);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`/api/boxes/${boxId}/deposit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountInDollars: Number(amount) }),
-      });
+      let res: Response;
+      if (source === "wallet") {
+        if (!wallet) { setError("Wallet not found."); setLoading(false); return; }
+        res = await fetch("/api/boxes/transfer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fromBoxId: wallet.id, toBoxId: boxId, amountInDollars: amt }),
+        });
+      } else {
+        res = await fetch(`/api/boxes/${boxId}/deposit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amountInDollars: amt }),
+        });
+      }
       if (!res.ok) {
         const d = await res.json();
-        throw new Error(d.error);
+        throw new Error(d.error ?? "Request failed");
       }
       onSuccess();
     } catch (e: any) {
@@ -646,14 +697,83 @@ function DepositForm({
     }
   }
 
+  // Step 1: source selection
+  if (source === null) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-gray-500">Where should the funds come from?</p>
+        <button
+          type="button"
+          onClick={() => setSource("wallet")}
+          disabled={!wallet}
+          className="w-full p-4 rounded-xl border-2 border-gray-100 hover:border-emerald-500 hover:bg-emerald-50 text-left transition-colors disabled:opacity-50 disabled:hover:border-gray-100 disabled:hover:bg-transparent"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold text-gray-900">Move from Wallet</div>
+              <div className="text-xs text-gray-500 mt-0.5">
+                Internal allocation — no new money added
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              {wallet ? currency(walletDollars) : "—"}
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setSource("external")}
+          className="w-full p-4 rounded-xl border-2 border-gray-100 hover:border-emerald-500 hover:bg-emerald-50 text-left transition-colors"
+        >
+          <div className="text-sm font-semibold text-gray-900">Add from external account</div>
+          <div className="text-xs text-gray-500 mt-0.5">
+            Fresh deposit from a connected bank account
+          </div>
+        </button>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl text-sm text-gray-500"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  // Step 2: amount entry for the selected source
+  const headerLabel = source === "wallet" ? "Move from Wallet" : "Add from external";
+  const ctaLabel =
+    loading
+      ? source === "wallet" ? "Moving…" : "Depositing…"
+      : source === "wallet" ? `Move $${amount || "0"}` : `Deposit $${amount || "0"}`;
+
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium text-gray-700">{headerLabel}</div>
+        {!targetIsWallet && (
+          <button
+            type="button"
+            onClick={() => { setSource(null); setError(""); }}
+            className="text-xs text-emerald-600 font-medium"
+          >
+            Change
+          </button>
+        )}
+      </div>
+      {source === "wallet" && wallet && (
+        <div className="text-xs text-gray-500">
+          Wallet available: <span className="font-semibold text-gray-700">{currency(walletDollars)}</span>
+        </div>
+      )}
       <input
-        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm"
+        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
         placeholder="Amount ($)"
         type="number"
+        min="1"
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
+        autoFocus
       />
       {error && <p className="text-rose-600 text-sm">{error}</p>}
       <div className="flex gap-3">
@@ -668,7 +788,7 @@ function DepositForm({
           disabled={loading}
           className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
         >
-          {loading ? "Depositing…" : `Deposit $${amount || "0"}`}
+          {ctaLabel}
         </button>
       </div>
     </div>
@@ -1080,16 +1200,70 @@ function UnlockRequestForm({
   box: Box | null;
   allBoxes?: Box[];
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (successMessage?: string) => void;
 }) {
+  const router = useRouter();
   const [reason, setReason] = useState("");
   const [reflection, setReflection] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submittedToName, setSubmittedToName] = useState<string | null>(null);
   // Sprint 6 — Banker intervention for KEYHOLDER only; user can switch to transfer request
   const [bankerDismissed, setBankerDismissed] = useState(false);
   const [switchToTransfer, setSwitchToTransfer] = useState(false);
+
+  // Sprint 7 — fetch ACTIVE keyholders eligible for this box (ALL scope or SELECTED for this box).
+  type ActiveKH = { id: string; label: string };
+  const [keyholders, setKeyholders] = useState<ActiveKH[] | null>(null);
+  const [selectedKhId, setSelectedKhId] = useState("");
+  const [switchingToFlexible, setSwitchingToFlexible] = useState(false);
+
+  useEffect(() => {
+    if (!box || box.lockType !== "KEYHOLDER") return;
+    fetch("/api/keyholders")
+      .then((r) => r.json())
+      .then((data: any[]) => {
+        if (!Array.isArray(data)) { setKeyholders([]); return; }
+        const eligible: ActiveKH[] = data
+          .filter((r) => r.status === "ACTIVE")
+          .filter((r) => {
+            if (r.scopeType === "ALL") return true;
+            if (r.scopeType === "SELECTED") {
+              const boxes = r.boxes ?? [];
+              return boxes.some((b: any) => b.boxId === box.id);
+            }
+            return false;
+          })
+          .map((r) => ({
+            id: r.id,
+            label: r.profile?.name
+              ? `${r.profile.name} (${r.profile.email})`
+              : r.profile?.email ?? "Keyholder",
+          }));
+        setKeyholders(eligible);
+        if (eligible.length > 0) setSelectedKhId(eligible[0].id);
+      })
+      .catch(() => setKeyholders([]));
+  }, [box]);
+
+  async function handleSwitchToFlexible() {
+    if (!box) return;
+    setSwitchingToFlexible(true);
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "switchToFlexible" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to switch.");
+      onSuccess(`${box.name} switched to Flexible. You can unlock it yourself.`);
+    } catch (e: any) {
+      setError(e.message);
+      setSwitchingToFlexible(false);
+    }
+  }
 
   if (switchToTransfer && box && allBoxes) {
     return (
@@ -1097,7 +1271,7 @@ function UnlockRequestForm({
         box={box}
         allBoxes={allBoxes}
         onClose={onClose}
-        onSuccess={onSuccess}
+        onSuccess={() => onSuccess()}
       />
     );
   }
@@ -1108,6 +1282,10 @@ function UnlockRequestForm({
       return;
     }
     if (!box) return;
+    if (box.lockType === "KEYHOLDER" && !selectedKhId) {
+      setError("Select a keyholder before submitting.");
+      return;
+    }
     setLoading(true);
     setError("");
 
@@ -1119,6 +1297,7 @@ function UnlockRequestForm({
           boxId: box.id,
           reason: reason.trim(),
           reflection: reflection.trim() || null,
+          keyholderRelationshipId: box.lockType === "KEYHOLDER" ? selectedKhId : undefined,
         }),
       });
 
@@ -1130,6 +1309,7 @@ function UnlockRequestForm({
         return;
       }
 
+      setSubmittedToName(data.keyholderName ?? null);
       setSubmitted(true);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -1139,22 +1319,66 @@ function UnlockRequestForm({
   }
 
   if (submitted) {
+    const name = submittedToName ?? "your keyholder";
     return (
       <div className="text-center py-6">
         <div className="text-4xl mb-4">📬</div>
         <h3 className="font-semibold text-lg text-gray-900 mb-2">
-          Request sent
+          Unlock request sent to {name}.
         </h3>
         <p className="text-sm text-gray-500 mb-6">
-          Your keyholder has been notified. You'll hear back once they review
-          your request.
+          {submittedToName
+            ? `${submittedToName} will review your request and approve or deny it.`
+            : "You'll hear back once they review your request."}
         </p>
         <button
-          onClick={onSuccess}
+          onClick={() => onSuccess()}
           className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
         >
           Done
         </button>
+      </div>
+    );
+  }
+
+  // Sprint 7 — recovery state: KEYHOLDER box with no active keyholder attached.
+  // Spec: never trap funds behind incomplete setup. Offer Create keyholder / Switch to Flexible.
+  if (box?.lockType === "KEYHOLDER" && keyholders !== null && keyholders.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h3 className="font-semibold text-lg text-gray-900">No keyholder attached</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            This box is marked Keyholder, but there's no one active to receive your request.
+          </p>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <p className="text-sm text-amber-800 leading-snug">
+            Invite a keyholder, or switch this box to Flexible so you can unlock it yourself.
+          </p>
+        </div>
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="space-y-2">
+          <button
+            onClick={() => router.push("/keyholders")}
+            className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium"
+          >
+            Create keyholder
+          </button>
+          <button
+            onClick={handleSwitchToFlexible}
+            disabled={switchingToFlexible}
+            className="w-full py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 disabled:opacity-50"
+          >
+            {switchingToFlexible ? "Switching…" : "Switch box to Flexible"}
+          </button>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl text-sm text-gray-500"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     );
   }
@@ -1183,6 +1407,32 @@ function UnlockRequestForm({
           your funds are unlocked.
         </p>
       </div>
+
+      {/* Sprint 7 — keyholder selection (KEYHOLDER only) */}
+      {box?.lockType === "KEYHOLDER" && keyholders && keyholders.length > 0 && (
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Send request to
+          </label>
+          {keyholders.length === 1 ? (
+            <div className="border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 bg-gray-50">
+              {keyholders[0].label}
+            </div>
+          ) : (
+            <select
+              value={selectedKhId}
+              onChange={(e) => setSelectedKhId(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+            >
+              {keyholders.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* Sprint 6 — Banker intervention (KEYHOLDER only) */}
       {box?.lockType === "KEYHOLDER" && !bankerDismissed && allBoxes && (
@@ -1335,6 +1585,92 @@ function RenameBoxForm({
           {loading ? "Saving…" : "Save"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Edit Due Date (SOFT only) ─────────────────────────────
+
+function EditDueDateForm({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const current = box?.lockUntil ? new Date(box.lockUntil).toISOString().slice(0, 10) : "";
+  const [date, setDate] = useState(current);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(clear: boolean = false) {
+    if (!box) return;
+    if (!clear) {
+      if (!date) { setError("Pick a date."); return; }
+      if (new Date(date) <= new Date()) { setError("Must be a future date."); return; }
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lockUntil: clear ? null : new Date(date).toISOString() }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Update failed");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!box) return null;
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold text-lg text-gray-900">Edit due date</h3>
+      <p className="text-xs text-gray-500">{box.name}</p>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-0.5">Lock until date</label>
+        <p className="text-xs text-gray-400 mb-2">Funds will be protected until this date.</p>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+        />
+      </div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex gap-3">
+        <button
+          onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => handleSubmit(false)}
+          disabled={loading}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {current && (
+        <button
+          onClick={() => handleSubmit(true)}
+          disabled={loading}
+          className="w-full py-2 text-xs text-gray-500 hover:text-rose-600"
+        >
+          Clear due date
+        </button>
+      )}
     </div>
   );
 }
