@@ -13,6 +13,7 @@ type Vault = {
   saved: number;
   dueDays: number | null;
   isLocked: boolean;
+  effectivelyLocked?: boolean;
   lockType?: string;
   isWallet?: boolean;
   isClosed?: boolean;
@@ -295,10 +296,10 @@ export default function VaultsScreen({
                       whileTap={{ scale: 0.92 }}
                       animate={{
                         scale: 1,
-                        boxShadow: v.isLocked
+                        boxShadow: (v.effectivelyLocked ?? v.isLocked)
                           ? "0 3px 5px rgba(0,0,0,0.25)"
                           : "inset 0 2px 4px rgba(0,0,0,0.15)",
-                        backgroundColor: v.isLocked ? "#f3f4f6" : "#d1fae5",
+                        backgroundColor: (v.effectivelyLocked ?? v.isLocked) ? "#f3f4f6" : "#d1fae5",
                       }}
                       transition={{
                         type: "spring",
@@ -306,7 +307,7 @@ export default function VaultsScreen({
                         damping: 18,
                       }}
                       onClick={() => {
-                        if (v.isLocked) {
+                        if ((v.effectivelyLocked ?? v.isLocked)) {
                           if (v.lockType === "SOFT") {
                             setSoftUnlockModal({ vaultId: v.id });
                           } else {
@@ -318,15 +319,15 @@ export default function VaultsScreen({
                       }}
                       className="h-9 w-9 grid place-items-center rounded-xl cursor-pointer border border-gray-200"
                       aria-label={
-                        v.isLocked ? "Vault locked" : "Vault unlocked"
+                        (v.effectivelyLocked ?? v.isLocked) ? "Vault locked" : "Vault unlocked"
                       }
                       title={
-                        v.isLocked
+                        (v.effectivelyLocked ?? v.isLocked)
                           ? "Tap to request unlock"
                           : "Tap to lock funds"
                       }
                     >
-                      {v.isLocked ? (
+                      {(v.effectivelyLocked ?? v.isLocked) ? (
                         <Lock className="h-4 w-4 text-gray-600" />
                       ) : (
                         <Unlock className="h-4 w-4 text-emerald-600" />

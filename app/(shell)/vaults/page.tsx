@@ -39,6 +39,12 @@ function toVaultShape(box: Box) {
         )
       : null,
     isLocked: box.status === "LOCKED" || box.status === "UNLOCK_PENDING",
+    // Hotfix: HARD/KEYHOLDER boxes always render as locked regardless of status
+    effectivelyLocked:
+      box.status === "LOCKED" ||
+      box.status === "UNLOCK_PENDING" ||
+      box.lockType === "HARD" ||
+      box.lockType === "KEYHOLDER",
     lockType: box.lockType ?? "SOFT",
     isWallet: box.isWallet,
     isClosed: box.isClosed,
