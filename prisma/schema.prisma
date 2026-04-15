@@ -53,6 +53,11 @@ enum LockType {
   SOFT
   KEYHOLDER
 }
+
+enum RequestType {
+  UNLOCK
+  TRANSFER
+}
 // ------------------------------------------------------------
 // 2. NEXTAUTH CORE MODELS
 // ------------------------------------------------------------
@@ -253,6 +258,11 @@ model UnlockRequest {
   reason     String // user-provided reason for early unlock
   reflection String? // answer to reflection prompt shown before submitting
   status     String  @default("PENDING") // PENDING | APPROVED | DENIED
+
+  // Sprint 6 — request can be UNLOCK (full self-access) or TRANSFER (keyholder-approved box→box)
+  requestType      RequestType @default(UNLOCK)
+  transferAmount   Int? // cents, TRANSFER type only
+  destinationBoxId String? // TRANSFER type only
 
   // Sent only to the keyholder — never exposed to the box owner under any circumstance
   approvalToken String @unique @default(cuid())

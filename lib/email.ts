@@ -66,6 +66,71 @@ export async function sendKeyholderInvite({
 // SECURITY: approvalToken is included in keyholder links only.
 // This function must never be called with the box owner's email.
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+// Transfer-request email — sent to the keyholder only
+// Sprint 6: approving moves funds from one box to another while
+// keeping the source box LOCKED. Not the same as a full unlock.
+// ------------------------------------------------------------
+export async function sendTransferRequestToKeyholder({
+  keyholderEmail,
+  keyholderName,
+  ownerName,
+  boxName,
+  destinationName,
+  amountDollars,
+  reason,
+  approvalToken,
+}: {
+  keyholderEmail: string;
+  keyholderName?: string | null;
+  ownerName?: string | null;
+  boxName: string;
+  destinationName: string;
+  amountDollars: number;
+  reason?: string | null;
+  approvalToken: string;
+}) {
+  const approveUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
+  const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
+  const owner = ownerName ?? "Your friend";
+  const amtStr = `$${amountDollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+  await resend.emails.send({
+    from: FROM,
+    to: keyholderEmail,
+    subject: `${owner} is requesting a transfer from a locked box`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+        <h2 style="color: #1a1a1a;">Transfer Request</h2>
+        <p>${greeting}</p>
+        <p><strong>${owner}</strong> is requesting a transfer from their locked box
+        <strong>"${boxName}"</strong>:</p>
+        <div style="background: #f5f5f5; padding: 16px; border-radius: 6px; margin: 16px 0;">
+          <p style="margin: 0 0 8px; font-size: 15px;">
+            <strong>${amtStr}</strong> from <strong>${boxName}</strong> to <strong>${destinationName}</strong>
+          </p>
+          <p style="margin: 8px 0 0; color: #555; font-size: 13px;">
+            The box will stay locked. Only the requested amount will move.
+          </p>
+          ${reason ? `<p style="margin: 12px 0 0; color: #333;"><strong>Reason:</strong> ${reason}</p>` : ""}
+        </div>
+        <a href="${approveUrl}" style="
+          display: inline-block;
+          background: #16a34a;
+          color: white;
+          padding: 12px 24px;
+          border-radius: 6px;
+          text-decoration: none;
+          font-weight: bold;
+        ">Review request</a>
+        <p style="color: #666; font-size: 13px; margin-top: 20px;">
+          You're receiving this because you are the keyholder for this LockBox.
+        </p>
+      </div>
+    `,
+  });
+}
+
 export async function sendUnlockRequestToKeyholder({
   keyholderEmail,
   keyholderName,

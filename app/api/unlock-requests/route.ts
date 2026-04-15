@@ -15,7 +15,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS, UNLOCK_STATUS } from "@/lib/types";
-import { sendUnlockRequestToKeyholder } from "@/lib/email";
+import { sendUnlockRequestToKeyholder, sendTransferRequestToKeyholder } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,13 +25,56 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { boxId, reason, reflection } = body;
+    const {
+      boxId,
+      reason,
+      reflection,
+      requestType = "UNLOCK",
+      transferAmountInDollars,
+      destinationBoxId,
+    } = body;
 
     if (!boxId || !reason) {
       return NextResponse.json(
         { error: "boxId and reason are required" },
         { status: 400 },
       );
+    }
+
+    const isTransfer = requestType === "TRANSFER";
+    let transferAmountCents: number | null = null;
+    let destinationBox: { id: string; name: string; userId: string; isClosed: boolean } | null = null;
+    if (isTransfer) {
+      const amt = Number(transferAmountInDollars);
+      if (!Number.isFinite(amt) || amt < 1) {
+        return NextResponse.json(
+          { error: "transferAmountInDollars must be at least $1" },
+          { status: 400 },
+        );
+      }
+      if (!destinationBoxId) {
+        return NextResponse.json(
+          { error: "destinationBoxId is required for transfer requests" },
+          { status: 400 },
+        );
+      }
+      destinationBox = await prisma.box.findUnique({
+        where: { id: destinationBoxId },
+        select: { id: true, name: true, userId: true, isClosed: true },
+      });
+      if (!destinationBox || destinationBox.userId !== session.user.id || destinationBox.isClosed) {
+        return NextResponse.json(
+          { error: "Invalid destination box" },
+          { status: 400 },
+        );
+      }
+      if (destinationBoxId === boxId) {
+        return NextResponse.json(
+          { error: "Destination must be a different box" },
+          { status: 400 },
+        );
+      }
+      transferAmountCents = Math.round(amt * 100);
     }
 
     // Verify box exists and belongs to this user
@@ -60,6 +103,21 @@ export async function POST(req: NextRequest) {
     // Box must be locked to submit an unlock request
     if (box.status !== BOX_STATUS.LOCKED) {
       return NextResponse.json({ error: "Box is not locked" }, { status: 400 });
+    }
+
+    // Sprint 6 — TRANSFER requests are only valid for KEYHOLDER boxes
+    if (isTransfer && box.lockType !== "KEYHOLDER") {
+      return NextResponse.json(
+        { error: "Transfer requests only apply to KEYHOLDER boxes" },
+        { status: 400 },
+      );
+    }
+
+    if (isTransfer && transferAmountCents! > box.lockedAmount) {
+      return NextResponse.json(
+        { error: "Transfer amount exceeds the locked amount in this box" },
+        { status: 400 },
+      );
     }
 
     // Only one pending request allowed at a time
@@ -97,16 +155,21 @@ export async function POST(req: NextRequest) {
         reason: reason.trim(),
         reflection: reflection ? reflection.trim() : null,
         status: UNLOCK_STATUS.PENDING,
-        // Set a 24-hour cooldown on the next request if this one is denied
+        requestType: isTransfer ? "TRANSFER" : "UNLOCK",
+        transferAmount: transferAmountCents,
+        destinationBoxId: isTransfer ? destinationBoxId : null,
         cooldownUntil: null,
       },
     });
 
-    // Update box status to UNLOCK_PENDING
-    await prisma.box.update({
-      where: { id: boxId },
-      data: { status: BOX_STATUS.UNLOCK_PENDING },
-    });
+    // Only full UNLOCK requests flip the box to UNLOCK_PENDING.
+    // TRANSFER requests keep the box LOCKED — only funds move on approval.
+    if (!isTransfer) {
+      await prisma.box.update({
+        where: { id: boxId },
+        data: { status: BOX_STATUS.UNLOCK_PENDING },
+      });
+    }
 
     // Notify keyholder via email if one exists
     // Find active keyholder relationship for this box
@@ -126,15 +189,28 @@ export async function POST(req: NextRequest) {
     });
 
     if (activeRelationship) {
-      await sendUnlockRequestToKeyholder({
-        keyholderEmail: activeRelationship.profile.email,
-        keyholderName: activeRelationship.profile.name,
-        ownerName: session.user.name,
-        boxName: box.name,
-        reason,
-        reflection,
-        approvalToken: unlockRequest.approvalToken,
-      });
+      if (isTransfer && destinationBox) {
+        await sendTransferRequestToKeyholder({
+          keyholderEmail: activeRelationship.profile.email,
+          keyholderName: activeRelationship.profile.name,
+          ownerName: session.user.name,
+          boxName: box.name,
+          destinationName: destinationBox.name,
+          amountDollars: (transferAmountCents ?? 0) / 100,
+          reason,
+          approvalToken: unlockRequest.approvalToken,
+        });
+      } else {
+        await sendUnlockRequestToKeyholder({
+          keyholderEmail: activeRelationship.profile.email,
+          keyholderName: activeRelationship.profile.name,
+          ownerName: session.user.name,
+          boxName: box.name,
+          reason,
+          reflection,
+          approvalToken: unlockRequest.approvalToken,
+        });
+      }
 
       await prisma.auditEvent.create({
         data: {

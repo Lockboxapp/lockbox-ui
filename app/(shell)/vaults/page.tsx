@@ -182,21 +182,63 @@ function VaultsPageInner() {
         </ModalSheet>
       )}
 
-      {/* Transfer modal */}
-      {showTransfer && (
-        <ModalSheet onClose={() => setShowTransfer(null)}>
-          <h3 className="font-semibold text-lg mb-4">Transfer Funds</h3>
-          <TransferForm
-            fromBoxId={showTransfer.id}
-            allBoxes={boxes}
-            onClose={() => setShowTransfer(null)}
-            onSuccess={() => {
-              setShowTransfer(null);
-              fetchBoxes();
-            }}
-          />
-        </ModalSheet>
-      )}
+      {/* Transfer modal — Sprint 6: routes by lockType */}
+      {showTransfer && (() => {
+        const src = getBox(showTransfer.id);
+        const close = () => setShowTransfer(null);
+        const success = () => {
+          setShowTransfer(null);
+          fetchBoxes();
+        };
+        if (!src) return null;
+        // HARD: transfer blocked — route to self-unlock
+        if (src.lockType === "HARD" && !src.isWallet) {
+          return (
+            <ModalSheet onClose={close}>
+              <HardSelfUnlockForm
+                box={src}
+                headline="Unlock this box to transfer"
+                intro="Transfers from fully locked boxes aren't allowed. You can unlock this box yourself — this cannot be undone."
+                onClose={close}
+                onSuccess={(msg) => {
+                  setToast(msg ?? "Box unlocked.");
+                  setTimeout(() => setToast(null), 3000);
+                  success();
+                }}
+              />
+            </ModalSheet>
+          );
+        }
+        // KEYHOLDER: transfer request flow
+        if (src.lockType === "KEYHOLDER" && !src.isWallet) {
+          return (
+            <ModalSheet onClose={close}>
+              <TransferRequestForm
+                box={src}
+                allBoxes={boxes}
+                onClose={close}
+                onSuccess={() => {
+                  setToast("Transfer request sent to your keyholder.");
+                  setTimeout(() => setToast(null), 3500);
+                  success();
+                }}
+              />
+            </ModalSheet>
+          );
+        }
+        // SOFT or Wallet: direct transfer
+        return (
+          <ModalSheet onClose={close}>
+            <h3 className="font-semibold text-lg mb-4">Transfer Funds</h3>
+            <TransferForm
+              fromBoxId={showTransfer.id}
+              allBoxes={boxes}
+              onClose={close}
+              onSuccess={success}
+            />
+          </ModalSheet>
+        );
+      })()}
 
       {/* Create box modal */}
       {newVaultOpen && (
@@ -243,19 +285,41 @@ function VaultsPageInner() {
         </ModalSheet>
       )}
 
-      {/* Unlock request modal */}
-      {unlockModal && (
-        <ModalSheet onClose={() => setUnlockModal(null)}>
-          <UnlockRequestForm
-            box={getBox(unlockModal.vaultId) ?? null}
-            onClose={() => setUnlockModal(null)}
-            onSuccess={() => {
-              setUnlockModal(null);
-              fetchBoxes();
-            }}
-          />
-        </ModalSheet>
-      )}
+      {/* Unlock modal — Sprint 6: HARD self-unlock vs KEYHOLDER request */}
+      {unlockModal && (() => {
+        const box = getBox(unlockModal.vaultId);
+        const close = () => setUnlockModal(null);
+        const success = () => {
+          setUnlockModal(null);
+          fetchBoxes();
+        };
+        if (!box) return null;
+        if (box.lockType === "HARD") {
+          return (
+            <ModalSheet onClose={close}>
+              <HardSelfUnlockForm
+                box={box}
+                onClose={close}
+                onSuccess={(msg) => {
+                  setToast(msg ?? "Box unlocked.");
+                  setTimeout(() => setToast(null), 3000);
+                  success();
+                }}
+              />
+            </ModalSheet>
+          );
+        }
+        return (
+          <ModalSheet onClose={close}>
+            <UnlockRequestForm
+              box={box}
+              allBoxes={boxes}
+              onClose={close}
+              onSuccess={success}
+            />
+          </ModalSheet>
+        );
+      })()}
 
       {/* Soft unlock confirmation modal */}
       {softUnlockModal && (
@@ -632,6 +696,7 @@ function LockForm({
   const balanceDollars = boxBalance / 100;
   // Default to full balance locked
   const [lockAmount, setLockAmount] = useState<string>(balanceDollars.toString());
+  const [selectedChip, setSelectedChip] = useState<number | null>(1);
 
   // For HARD/KEYHOLDER, lockedAmount is always full balance (server enforces too)
   const showAmountSelector = lockType === "SOFT" && boxBalance > 0;
@@ -639,6 +704,7 @@ function LockForm({
   const setChip = (pct: 0.25 | 0.5 | 0.75 | 1) => {
     const v = Math.max(1, Math.round(balanceDollars * pct));
     setLockAmount(String(v));
+    setSelectedChip(pct);
   };
 
   async function handleSubmit() {
@@ -706,20 +772,30 @@ function LockForm({
             min="1"
             max={balanceDollars}
             value={lockAmount}
-            onChange={(e) => setLockAmount(e.target.value)}
+            onChange={(e) => {
+              setLockAmount(e.target.value);
+              setSelectedChip(null);
+            }}
             className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
           />
           <div className="flex gap-2 mt-2">
-            {([["25%", 0.25], ["50%", 0.5], ["75%", 0.75], ["All", 1]] as const).map(([label, pct]) => (
-              <button
-                key={label}
-                type="button"
-                onClick={() => setChip(pct)}
-                className="flex-1 px-2 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50"
-              >
-                {label}
-              </button>
-            ))}
+            {([["25%", 0.25], ["50%", 0.5], ["75%", 0.75], ["All", 1]] as const).map(([label, pct]) => {
+              const active = selectedChip === pct;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setChip(pct)}
+                  className={`flex-1 px-2 py-1.5 rounded-lg border text-xs font-medium transition-colors active:scale-95 ${
+                    active
+                      ? "bg-emerald-600 border-emerald-600 text-white shadow-sm"
+                      : "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
           <p className="text-xs text-gray-500 mt-2">
             ${remaining.toLocaleString(undefined, { maximumFractionDigits: 0 })} will remain available.
@@ -748,12 +824,261 @@ function LockForm({
 
 // ── Unlock Request Form ────────────────────────────────────
 
+// ── HARD Self-Unlock Form ─────────────────────────────────
+// No keyholder language. Explicit self-action. Reason required.
+
+function HardSelfUnlockForm({
+  box,
+  onClose,
+  onSuccess,
+  headline,
+  intro,
+}: {
+  box: Box;
+  onClose: () => void;
+  onSuccess: (toastMessage?: string) => void;
+  headline?: string;
+  intro?: string;
+}) {
+  const [reason, setReason] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit() {
+    if (!reason.trim()) { setError("Please provide a reason."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "unlock", reason: reason.trim() }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Unlock failed");
+      }
+      onSuccess(`${box.name} unlocked.`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-900">
+          {headline ?? "Unlock this box"}
+        </h3>
+        <p className="text-sm text-gray-500 mt-1">{box.name}</p>
+      </div>
+      <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+        <p className="text-sm text-rose-800 leading-snug">
+          {intro ?? "You are unlocking this box yourself. This releases all locked funds and cannot be undone automatically."}
+        </p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          Why are you unlocking this? <span className="text-rose-500">*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Unexpected car repair"
+          rows={3}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 resize-none focus:outline-none focus:ring-2 focus:ring-rose-400"
+        />
+      </div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+          Keep locked
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !reason.trim()}
+          className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Unlocking…" : "Unlock box"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── KEYHOLDER Transfer Request Form ───────────────────────
+// Creates an UnlockRequest with requestType=TRANSFER. Box stays locked.
+
+function TransferRequestForm({
+  box,
+  allBoxes,
+  onClose,
+  onSuccess,
+}: {
+  box: Box;
+  allBoxes: Box[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const destBoxes = allBoxes.filter((b) => b.id !== box.id && !b.isClosed);
+  const [toBoxId, setToBoxId] = useState(destBoxes[0]?.id ?? "");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const currency = (n: number) =>
+    n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+  async function handleSubmit() {
+    setError("");
+    const amt = Number(amount);
+    if (!toBoxId) { setError("Pick a destination box."); return; }
+    if (!Number.isFinite(amt) || amt < 1) { setError("Amount must be at least $1."); return; }
+    const lockedDollars = box.lockedAmount / 100;
+    if (amt > lockedDollars) {
+      setError(`Amount can't exceed the locked amount ($${lockedDollars}).`);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/unlock-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boxId: box.id,
+          requestType: "TRANSFER",
+          transferAmountInDollars: amt,
+          destinationBoxId: toBoxId,
+          reason: reason.trim() || "Transfer request",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Failed to send transfer request.");
+        setLoading(false);
+        return;
+      }
+      setSubmitted(true);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="text-center py-6">
+        <div className="text-4xl mb-4">📬</div>
+        <h3 className="font-semibold text-lg text-gray-900 mb-2">Request sent</h3>
+        <p className="text-sm text-gray-500 mb-6">
+          Your keyholder will review the transfer. The box stays locked while they decide.
+        </p>
+        <button onClick={onSuccess} className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium">
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  if (destBoxes.length === 0) {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-lg text-gray-900">Request a transfer</h3>
+        <p className="text-sm text-gray-500">
+          You need another active box to transfer into. Create a second box first.
+        </p>
+        <button onClick={onClose} className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+          Close
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-semibold text-lg text-gray-900">Request a transfer</h3>
+        <p className="text-sm text-gray-500 mt-1">
+          {box.name} · {currency(box.lockedAmount / 100)} locked
+        </p>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <p className="text-xs text-amber-800 leading-snug">
+          Your keyholder must approve. The box stays locked — only the amount you choose will move.
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">To</label>
+        <select
+          value={toBoxId}
+          onChange={(e) => setToBoxId(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+        >
+          {destBoxes.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name} ({currency(b.balance / 100)})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">Amount ($)</label>
+        <input
+          type="number"
+          min="1"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0"
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          Reason <span className="text-gray-400 font-normal">(optional)</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Helps your keyholder understand the ask"
+          rows={2}
+          className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm text-gray-900 resize-none"
+        />
+      </div>
+
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          {loading ? "Sending…" : "Send request"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UnlockRequestForm({
   box,
+  allBoxes,
   onClose,
   onSuccess,
 }: {
   box: Box | null;
+  allBoxes?: Box[];
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -762,6 +1087,20 @@ function UnlockRequestForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  // Sprint 6 — Banker intervention for KEYHOLDER only; user can switch to transfer request
+  const [bankerDismissed, setBankerDismissed] = useState(false);
+  const [switchToTransfer, setSwitchToTransfer] = useState(false);
+
+  if (switchToTransfer && box && allBoxes) {
+    return (
+      <TransferRequestForm
+        box={box}
+        allBoxes={allBoxes}
+        onClose={onClose}
+        onSuccess={onSuccess}
+      />
+    );
+  }
 
   async function handleSubmit() {
     if (!reason.trim()) {
@@ -844,6 +1183,35 @@ function UnlockRequestForm({
           your funds are unlocked.
         </p>
       </div>
+
+      {/* Sprint 6 — Banker intervention (KEYHOLDER only) */}
+      {box?.lockType === "KEYHOLDER" && !bankerDismissed && allBoxes && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+          <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-1">
+            The Banker
+          </div>
+          <p className="text-sm text-gray-800 leading-snug mb-3">
+            Before fully unlocking — do you actually need all of it? If you just need some of it,
+            you can keep the rest protected.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSwitchToTransfer(true)}
+              className="flex-1 py-2 rounded-xl bg-emerald-600 text-white text-xs font-medium"
+            >
+              Request transfer instead
+            </button>
+            <button
+              type="button"
+              onClick={() => setBankerDismissed(true)}
+              className="flex-1 py-2 rounded-xl border border-gray-200 text-xs font-medium text-gray-600"
+            >
+              Unlock anyway
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Reason */}
       <div>
@@ -1122,7 +1490,8 @@ function TransferForm({
   onSuccess: () => void;
 }) {
   const fromBox = allBoxes.find((b) => b.id === fromBoxId);
-  const destBoxes = allBoxes.filter((b) => b.id !== fromBoxId);
+  // Sprint 6 — exclude closed boxes from destinations
+  const destBoxes = allBoxes.filter((b) => b.id !== fromBoxId && !b.isClosed);
   const [toBoxId, setToBoxId] = useState(destBoxes[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);

@@ -104,20 +104,76 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Approve — update unlock request and box in a transaction
-    await prisma.$transaction([
-      prisma.unlockRequest.update({
-        where: { id: unlockRequest.id },
-        data: {
-          status: UNLOCK_STATUS.APPROVED,
-          resolvedAt: new Date(),
-        },
-      }),
-      prisma.box.update({
-        where: { id: unlockRequest.boxId },
-        data: { status: BOX_STATUS.UNLOCKED },
-      }),
-    ]);
+    // Sprint 6 — branch on requestType
+    const isTransfer = unlockRequest.requestType === "TRANSFER";
+
+    if (isTransfer) {
+      const amt = unlockRequest.transferAmount ?? 0;
+      const destId = unlockRequest.destinationBoxId;
+      if (!destId || amt <= 0) {
+        return NextResponse.json(
+          { error: "Invalid transfer request data" },
+          { status: 400 },
+        );
+      }
+      const destBox = await prisma.box.findUnique({ where: { id: destId } });
+      if (!destBox || destBox.userId !== unlockRequest.box.userId || destBox.isClosed) {
+        return NextResponse.json({ error: "Destination box unavailable" }, { status: 400 });
+      }
+      if (unlockRequest.box.lockedAmount < amt) {
+        return NextResponse.json({ error: "Locked amount insufficient for transfer" }, { status: 400 });
+      }
+
+      await prisma.$transaction([
+        // Move funds: debit source balance+lockedAmount, credit destination balance
+        prisma.box.update({
+          where: { id: unlockRequest.boxId },
+          data: {
+            balance: { decrement: amt },
+            lockedAmount: { decrement: amt },
+            // Box stays LOCKED — status unchanged
+          },
+        }),
+        prisma.box.update({
+          where: { id: destId },
+          data: { balance: { increment: amt } },
+        }),
+        prisma.transaction.create({
+          data: {
+            userId: unlockRequest.box.userId,
+            boxId: unlockRequest.boxId,
+            type: "TRANSFER_OUT",
+            amount: amt,
+            description: `Keyholder-approved transfer to ${destBox.name}`,
+          },
+        }),
+        prisma.transaction.create({
+          data: {
+            userId: unlockRequest.box.userId,
+            boxId: destId,
+            type: "TRANSFER_IN",
+            amount: amt,
+            description: `Keyholder-approved transfer from ${unlockRequest.box.name}`,
+          },
+        }),
+        prisma.unlockRequest.update({
+          where: { id: unlockRequest.id },
+          data: { status: UNLOCK_STATUS.APPROVED, resolvedAt: new Date() },
+        }),
+      ]);
+    } else {
+      // UNLOCK — full unlock, release all locked funds
+      await prisma.$transaction([
+        prisma.unlockRequest.update({
+          where: { id: unlockRequest.id },
+          data: { status: UNLOCK_STATUS.APPROVED, resolvedAt: new Date() },
+        }),
+        prisma.box.update({
+          where: { id: unlockRequest.boxId },
+          data: { status: BOX_STATUS.UNLOCKED, lockedAmount: 0 },
+        }),
+      ]);
+    }
 
     // Audit event
     await prisma.auditEvent.create({

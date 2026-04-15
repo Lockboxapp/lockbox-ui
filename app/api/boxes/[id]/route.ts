@@ -193,22 +193,49 @@ export async function PATCH(
     // UNLOCK ACTION — for SOFT boxes only
     // --------------------------------------------------------
     if (action === "unlock") {
-      if (box.lockType !== "SOFT") {
+      // KEYHOLDER must go through the unlock-request flow — not self-unlockable
+      if (box.lockType === "KEYHOLDER") {
         return NextResponse.json(
           {
             error:
-              "Only SOFT boxes can be self-unlocked. Submit an unlock request instead.",
+              "KEYHOLDER boxes cannot be self-unlocked. Submit an unlock request.",
           },
           { status: 400 },
         );
       }
 
+      // Sprint 6 — HARD boxes can be self-unlocked by the user, but a reason is required.
+      // SOFT boxes unlock with confirmation only (no reason needed).
+      const reason: string | undefined = body.reason;
+      if (box.lockType === "HARD") {
+        if (!reason || !reason.trim()) {
+          return NextResponse.json(
+            { error: "A reason is required to unlock a HARD box." },
+            { status: 400 },
+          );
+        }
+      }
+
       const unlockedBox = await prisma.box.update({
         where: { id },
         data: {
-          status: "CREATED",
+          status: box.lockType === "SOFT" ? "CREATED" : "UNLOCKED",
           lockUntil: null,
           lockedAmount: 0,
+        },
+      });
+
+      // Record the self-unlock action on the activity feed
+      await prisma.transaction.create({
+        data: {
+          userId: session.user.id,
+          boxId: box.id,
+          type: "UNLOCK",
+          amount: 0,
+          description:
+            box.lockType === "HARD"
+              ? `Self-unlocked (HARD): ${reason!.trim()}`
+              : `Unlocked ${box.name}`,
         },
       });
 
