@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import posthog from "posthog-js";
 
 type Props = {
   open: boolean;
@@ -43,6 +44,11 @@ export default function NewVaultModal({ open, onClose, onCreated }: Props) {
       }
 
       const created = await res.json();
+      posthog.capture("vault_created", {
+        vault_id: created.id,
+        vault_name: created.name,
+        has_initial_balance: payload.initialBalance !== undefined,
+      });
       onCreated?.(created);
       onClose();
       setName("");

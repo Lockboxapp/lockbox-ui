@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import posthog from "posthog-js";
 
 type Vault = {
   id: string;
@@ -79,7 +80,16 @@ export default function TransferModal({
             {toId ? (
               <button
                 disabled={amount <= 0 || amount > unlocked}
-                onClick={() => onTransferBetween(amount, toId)}
+                onClick={() => {
+                  posthog.capture("transfer_submitted", {
+                    from_vault_id: sourceVault.id,
+                    from_vault_name: sourceVault.name,
+                    to_vault_id: toId,
+                    transfer_type: "vault_to_vault",
+                    amount,
+                  });
+                  onTransferBetween(amount, toId);
+                }}
                 className={`py-3 rounded-xl text-white ${amount > 0 && amount <= unlocked ? "bg-gray-900" : "bg-gray-300"}`}
               >
                 Transfer to Vault
@@ -87,7 +97,15 @@ export default function TransferModal({
             ) : (
               <button
                 disabled={amount <= 0 || amount > unlocked}
-                onClick={() => onTransferToBank(amount)}
+                onClick={() => {
+                  posthog.capture("transfer_submitted", {
+                    from_vault_id: sourceVault.id,
+                    from_vault_name: sourceVault.name,
+                    transfer_type: "vault_to_bank",
+                    amount,
+                  });
+                  onTransferToBank(amount);
+                }}
                 className={`py-3 rounded-xl text-white ${amount > 0 && amount <= unlocked ? "bg-gray-900" : "bg-gray-300"}`}
               >
                 Withdraw to Bank

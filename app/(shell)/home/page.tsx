@@ -51,8 +51,15 @@ export default async function HomePage() {
   const now = new Date();
 
   // ── All primary queries in parallel ─────────────────────────────────────
-  const [boxes, pendingUnlockRequests, recentTransactions, dbUser, lastUnlockAttempt, wallet] =
-    await Promise.all([
+  const [
+    boxes,
+    pendingUnlockRequests,
+    recentTransactions,
+    dbUser,
+    lastUnlockAttempt,
+    wallet,
+    activeKeyholders,
+  ] = await Promise.all([
       prisma.box.findMany({
         where: {
           userId,
@@ -104,6 +111,16 @@ export default async function HomePage() {
       prisma.box.findFirst({
         where: { userId, isWallet: true },
         select: { id: true, balance: true },
+      }),
+      // Sprint 11 — all ACTIVE keyholder relationships for this user, to detect
+      // KEYHOLDER boxes that currently have no one covering them.
+      prisma.keyholderRelationship.findMany({
+        where: { userId, status: "ACTIVE" },
+        select: {
+          id: true,
+          scopeType: true,
+          boxes: { select: { boxId: true } },
+        },
       }),
     ]);
 
@@ -194,6 +211,18 @@ export default async function HomePage() {
       b.balance === 0,
   );
 
+  // Sprint 11: KEYHOLDER boxes that currently have no active keyholder covering them.
+  const hasAllScope = activeKeyholders.some((k) => k.scopeType === "ALL");
+  const missingKeyholderBox = boxes.find((b) => {
+    if (b.lockType !== "KEYHOLDER") return false;
+    if (hasAllScope) return false;
+    const covered = activeKeyholders.some(
+      (k) =>
+        k.scopeType === "SELECTED" && k.boxes.some((kb) => kb.boxId === b.id),
+    );
+    return !covered;
+  });
+
   // Sprint 4: Wallet-low nudge — fires when Wallet < $20 and there's money protected in boxes
   const walletLow = walletBalance < 2000 && protectedInBoxes > 0;
 
@@ -201,6 +230,11 @@ export default async function HomePage() {
     bankerInsight = {
       type: "behind_target",
       message: `You created ${emptyLockedBox.name} to lock away some money. Let's start doing that.`,
+    };
+  } else if (missingKeyholderBox) {
+    bankerInsight = {
+      type: "behind_target",
+      message: `${missingKeyholderBox.name} has no active keyholder. Assign one to restore protection.`,
     };
   } else if (unlockPendingQualifier) {
     bankerInsight = {

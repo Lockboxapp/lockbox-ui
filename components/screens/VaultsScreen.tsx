@@ -18,6 +18,8 @@ type Vault = {
   isWallet?: boolean;
   isClosed?: boolean;
   closedAt?: string | null;
+  // Sprint 11 — derived state: KEYHOLDER box with no active keyholder covering it
+  missingKeyholder?: boolean;
 };
 
 type Props = {
@@ -31,6 +33,8 @@ type Props = {
   onRenameBox?: (id: string) => void;
   onEditDueDate?: (id: string) => void;
   onReopenBox?: (id: string) => void;
+  onSwitchToFlexible?: (id: string) => void;
+  onAssignKeyholder?: () => void;
   setShowTransfer: React.Dispatch<React.SetStateAction<null | { id: string }>>;
   setAddFundsModal: React.Dispatch<
     React.SetStateAction<null | { vaultId: string }>
@@ -89,6 +93,8 @@ export default function VaultsScreen({
   onRenameBox,
   onEditDueDate,
   onReopenBox,
+  onSwitchToFlexible,
+  onAssignKeyholder,
   setShowTransfer,
   setAddFundsModal,
   setLockModal,
@@ -271,6 +277,37 @@ export default function VaultsScreen({
                     )}
                   </div>
                 </div>
+
+                {/* Sprint 11 — missing keyholder banner + recovery options */}
+                {v.missingKeyholder && (
+                  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p className="text-sm font-medium text-amber-900">
+                      No active keyholder — this box needs attention
+                    </p>
+                    <p className="text-xs text-amber-800 leading-snug mt-1">
+                      Unlock and transfer requests are blocked until you assign a new keyholder
+                      or switch this box to Flexible.
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      {onAssignKeyholder && (
+                        <button
+                          onClick={onAssignKeyholder}
+                          className="flex-1 py-2 rounded-lg bg-amber-600 text-white text-xs font-medium"
+                        >
+                          Assign keyholder
+                        </button>
+                      )}
+                      {onSwitchToFlexible && (
+                        <button
+                          onClick={() => onSwitchToFlexible(v.id)}
+                          className="flex-1 py-2 rounded-lg border border-amber-300 text-amber-900 text-xs font-medium bg-white"
+                        >
+                          Switch to Flexible
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Progress */}
                 <div className="mt-3">

@@ -319,6 +319,7 @@ model KeyholderRelationship {
   inviteExpiresAt DateTime?
   acceptedAt      DateTime?
   revokedAt       DateTime?
+  revokedBy       String? // Sprint 11 — 'KEYHOLDER' (opt-out) or 'OWNER' (removed)
   safetyMode      Boolean                     @default(false)
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt

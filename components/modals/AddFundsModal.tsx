@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import posthog from "posthog-js";
 
 type Vault = {
   id: string;
@@ -84,7 +85,14 @@ export default function AddFundsModal({
             </button>
             <button
               disabled={amount <= 0}
-              onClick={() => onSubmit(amount)}
+              onClick={() => {
+                posthog.capture("funds_added", {
+                  vault_id: vault.id,
+                  vault_name: vault.name,
+                  amount,
+                });
+                onSubmit(amount);
+              }}
               className={`py-3 rounded-xl text-white ${
                 amount > 0 ? "bg-emerald-600" : "bg-gray-300"
               }`}

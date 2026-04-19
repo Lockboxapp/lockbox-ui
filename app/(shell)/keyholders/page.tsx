@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Shield, Plus, ChevronLeft, Mail, Check, Clock, X } from "lucide-react";
@@ -38,6 +38,9 @@ export default function KeyholdersPage() {
     [],
   );
   const [error, setError] = useState("");
+
+  // Sprint 11 — manage/remove modal state
+  const [manageTargetId, setManageTargetId] = useState<string | null>(null);
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState("");
@@ -430,6 +433,9 @@ export default function KeyholdersPage() {
                 key={r.id}
                 relationship={r}
                 getStatusBadge={getStatusBadge}
+                onManage={
+                  r.status === "ACTIVE" ? () => setManageTargetId(r.id) : undefined
+                }
               />
             ))}
           </div>
@@ -448,6 +454,9 @@ export default function KeyholdersPage() {
                 key={r.id}
                 relationship={r}
                 getStatusBadge={getStatusBadge}
+                onManage={
+                  r.status === "ACTIVE" ? () => setManageTargetId(r.id) : undefined
+                }
               />
             ))}
           </div>
@@ -466,6 +475,9 @@ export default function KeyholdersPage() {
                 key={r.id}
                 relationship={r}
                 getStatusBadge={getStatusBadge}
+                onManage={
+                  r.status === "ACTIVE" ? () => setManageTargetId(r.id) : undefined
+                }
               />
             ))}
           </div>
@@ -483,6 +495,18 @@ export default function KeyholdersPage() {
           </p>
         </div>
       )}
+
+      {/* Sprint 11 — Manage / Remove modal */}
+      {manageTargetId && (
+        <ManageKeyholderModal
+          relationshipId={manageTargetId}
+          onClose={() => setManageTargetId(null)}
+          onRemoved={() => {
+            setManageTargetId(null);
+            fetchRelationships();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -491,15 +515,17 @@ export default function KeyholdersPage() {
 function RelationshipCard({
   relationship,
   getStatusBadge,
+  onManage,
 }: {
   relationship: KeyholderRelationship;
   getStatusBadge: (status: string) => React.ReactNode;
+  onManage?: () => void;
 }) {
   return (
     <div className="bg-white border border-gray-100 rounded-xl p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+          <div className="h-9 w-9 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
             <Mail className="h-4 w-4 text-emerald-600" />
           </div>
           <div>
@@ -516,7 +542,7 @@ function RelationshipCard({
         {getStatusBadge(relationship.status)}
       </div>
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="mt-3 flex items-center gap-3 flex-wrap">
         <span className="text-xs text-gray-400">
           Covers:{" "}
           {relationship.scopeType === "ALL" ? "All boxes" : "Selected boxes"}
@@ -531,6 +557,218 @@ function RelationshipCard({
           <span className="text-xs text-gray-400">
             Since {new Date(relationship.acceptedAt).toLocaleDateString()}
           </span>
+        )}
+        {onManage && (
+          <button
+            onClick={onManage}
+            className="ml-auto text-xs text-gray-500 hover:text-gray-700 underline"
+          >
+            Manage
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Manage (remove) modal — Sprint 11 ──
+// Friction path: 3 clicks from here (Settings → Keyholders → Manage → Remove).
+// Confirmation modal lists affected boxes and warns if this is the only active
+// keyholder on any of them (recovery required).
+
+function ManageKeyholderModal({
+  relationshipId,
+  onClose,
+  onRemoved,
+}: {
+  relationshipId: string;
+  onClose: () => void;
+  onRemoved: () => void;
+}) {
+  type BoxLite = {
+    id: string;
+    name: string;
+    lockType: string;
+    isClosed: boolean;
+    isWallet: boolean;
+  };
+  type Rel = {
+    id: string;
+    status: string;
+    scopeType: string;
+    profile: { email: string; name: string | null };
+    boxes?: { boxId: string }[];
+  };
+
+  const [relationships, setRelationships] = useState<Rel[]>([]);
+  const [boxes, setBoxes] = useState<BoxLite[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/keyholders").then((r) => r.json()),
+      fetch("/api/boxes").then((r) => r.json()),
+    ])
+      .then(([rels, bs]) => {
+        if (Array.isArray(rels)) setRelationships(rels);
+        if (Array.isArray(bs)) setBoxes(bs);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const target = relationships.find((r) => r.id === relationshipId);
+
+  // Which boxes does this relationship cover?
+  const coveredBoxes: BoxLite[] = useMemo(() => {
+    if (!target) return [];
+    const nonClosed = boxes.filter((b) => !b.isClosed && !b.isWallet);
+    if (target.scopeType === "ALL") {
+      return nonClosed.filter((b) => b.lockType === "KEYHOLDER");
+    }
+    const ids = new Set((target.boxes ?? []).map((tb) => tb.boxId));
+    return nonClosed.filter((b) => ids.has(b.id));
+  }, [target, boxes]);
+
+  // Among covered boxes, which would lose their only active keyholder if we remove?
+  const aloneBoxNames: string[] = useMemo(() => {
+    const activeOthers = relationships.filter(
+      (r) => r.id !== relationshipId && r.status === "ACTIVE",
+    );
+    const hasAll = activeOthers.some((r) => r.scopeType === "ALL");
+    if (hasAll) return [];
+    return coveredBoxes
+      .filter((b) => {
+        const otherCovers = activeOthers.some((r) => {
+          if (r.scopeType === "ALL") return true;
+          return (r.boxes ?? []).some((tb) => tb.boxId === b.id);
+        });
+        return !otherCovers;
+      })
+      .map((b) => b.name);
+  }, [relationships, relationshipId, coveredBoxes]);
+
+  async function handleRemove() {
+    setRemoving(true);
+    setErr("");
+    try {
+      const res = await fetch(`/api/keyholders/manage/${relationshipId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setErr(data.error ?? "Failed to remove keyholder.");
+        setRemoving(false);
+        return;
+      }
+      onRemoved();
+    } catch {
+      setErr("Request failed.");
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
+      <div
+        className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading…</p>
+        ) : !target ? (
+          <>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Not found
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              This keyholder relationship no longer exists.
+            </p>
+            <button
+              onClick={onClose}
+              className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+            >
+              Close
+            </button>
+          </>
+        ) : !confirmOpen ? (
+          <>
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Manage keyholder</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {target.profile.name ?? target.profile.email}
+            </p>
+
+            <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 mb-4">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                Covers
+              </div>
+              {coveredBoxes.length === 0 ? (
+                <p className="text-sm text-gray-500">No active boxes.</p>
+              ) : (
+                <ul className="text-sm text-gray-800 space-y-0.5">
+                  {coveredBoxes.map((b) => (
+                    <li key={b.id}>• {b.name}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => setConfirmOpen(true)}
+                className="flex-1 py-2.5 rounded-xl border border-rose-200 text-rose-700 text-sm font-medium bg-rose-50"
+              >
+                Remove keyholder
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Remove {target.profile.name ?? target.profile.email}?
+            </h3>
+            <p className="text-sm text-gray-600 leading-snug mb-4">
+              They will lose access to all boxes they currently cover, and be
+              notified by email.
+            </p>
+
+            {aloneBoxNames.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+                <p className="text-sm text-amber-800 leading-snug">
+                  Removing them will leave {" "}
+                  <strong>{aloneBoxNames.join(", ")}</strong>{" "}
+                  without a keyholder. You&apos;ll need to assign a new keyholder
+                  or switch {aloneBoxNames.length === 1 ? "it" : "them"} to Flexible.
+                </p>
+              </div>
+            )}
+
+            {err && <p className="text-sm text-rose-600 mb-3">{err}</p>}
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmOpen(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRemove}
+                disabled={removing}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {removing ? "Removing…" : "Remove keyholder"}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

@@ -204,6 +204,7 @@ export async function POST(req: NextRequest) {
       profile: { email: string; name: string | null };
     };
     let activeRelationship: KHWithProfile | null = null;
+    // id is part of KHWithProfile so call-sites can pass relationshipId through to email footers (Sprint 11)
     if (keyholderRelationshipId) {
       activeRelationship = await prisma.keyholderRelationship.findFirst({
         where: {
@@ -255,6 +256,7 @@ export async function POST(req: NextRequest) {
           amountDollars: (transferAmountCents ?? 0) / 100,
           reason,
           approvalToken: unlockRequest.approvalToken,
+          relationshipId: activeRelationship.id,
         });
       } else {
         await sendUnlockRequestToKeyholder({
@@ -265,6 +267,7 @@ export async function POST(req: NextRequest) {
           reason,
           reflection,
           approvalToken: unlockRequest.approvalToken,
+          relationshipId: activeRelationship.id,
         });
       }
 

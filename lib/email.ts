@@ -25,6 +25,27 @@ function unsubscribeFooter(entryId: string) {
   return `\n\n—\nUnsubscribe: ${url}`;
 }
 
+// Sprint 11 — opt-out footer included in every keyholder-facing email.
+// Token encodes the KeyholderRelationship id so the keyholder can step
+// down without signing in.
+function keyholderOptOutFooter(relationshipId: string) {
+  const token = Buffer.from(relationshipId).toString("base64");
+  const url = `${PUBLIC_BASE_URL}/keyholder/optout?token=${encodeURIComponent(token)}`;
+  return `\n\n—\nOpt out as keyholder: ${url}`;
+}
+
+function boxListText(boxes: { name: string; targetAmount?: number | null }[]) {
+  if (boxes.length === 0) return "(none)";
+  return boxes
+    .map((b) => {
+      const target = b.targetAmount
+        ? ` — target $${(b.targetAmount / 100).toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+        : "";
+      return `• ${b.name}${target}`;
+    })
+    .join("\n");
+}
+
 // ------------------------------------------------------------
 // Email 1 — Day 1 — Immediate on waitlist signup
 // ------------------------------------------------------------
@@ -156,15 +177,27 @@ export async function sendKeyholderInvite({
   keyholderName,
   ownerName,
   inviteToken,
+  relationshipId,
 }: {
   keyholderEmail: string;
   keyholderName?: string | null;
   ownerName?: string | null;
   inviteToken: string;
+  relationshipId?: string;
 }) {
   const acceptUrl = `${BASE_URL}/keyholder/accept?token=${inviteToken}`;
   const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
   const owner = ownerName ?? "Someone";
+  // Sprint 11 — opt-out link for keyholders. Only rendered if we have the
+  // relationship id (callers should always pass it going forward).
+  const optOutBlock = relationshipId
+    ? `<p style="color:#999;font-size:12px;margin-top:20px;">
+          Don't want to be a keyholder? You can
+          <a href="${PUBLIC_BASE_URL}/keyholder/optout?token=${encodeURIComponent(
+            Buffer.from(relationshipId).toString("base64"),
+          )}" style="color:#999;">opt out here</a>.
+        </p>`
+    : "";
 
   await resend.emails.send({
     from: FROM,
@@ -193,6 +226,7 @@ export async function sendKeyholderInvite({
           This invite expires in 7 days. If you weren't expecting this,
           you can safely ignore this email.
         </p>
+        ${optOutBlock}
       </div>
     `,
   });
@@ -217,6 +251,7 @@ export async function sendTransferRequestToKeyholder({
   amountDollars,
   reason,
   approvalToken,
+  relationshipId,
 }: {
   keyholderEmail: string;
   keyholderName?: string | null;
@@ -226,11 +261,19 @@ export async function sendTransferRequestToKeyholder({
   amountDollars: number;
   reason?: string | null;
   approvalToken: string;
+  relationshipId?: string;
 }) {
   const approveUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
   const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
   const owner = ownerName ?? "Your friend";
   const amtStr = `$${amountDollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const optOutBlock = relationshipId
+    ? `<p style="color:#999;font-size:11px;margin-top:24px;">
+          <a href="${PUBLIC_BASE_URL}/keyholder/optout?token=${encodeURIComponent(
+            Buffer.from(relationshipId).toString("base64"),
+          )}" style="color:#999;">Opt out as keyholder</a>
+        </p>`
+    : "";
 
   await resend.emails.send({
     from: FROM,
@@ -263,6 +306,7 @@ export async function sendTransferRequestToKeyholder({
         <p style="color: #666; font-size: 13px; margin-top: 20px;">
           You're receiving this because you are the keyholder for this LockBox.
         </p>
+        ${optOutBlock}
       </div>
     `,
   });
@@ -276,6 +320,7 @@ export async function sendUnlockRequestToKeyholder({
   reason,
   reflection,
   approvalToken,
+  relationshipId,
 }: {
   keyholderEmail: string;
   keyholderName?: string | null;
@@ -284,11 +329,19 @@ export async function sendUnlockRequestToKeyholder({
   reason: string;
   reflection?: string | null;
   approvalToken: string;
+  relationshipId?: string;
 }) {
   const approveUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
   const denyUrl = `${BASE_URL}/keyholder?token=${approvalToken}`;
   const greeting = keyholderName ? `Hi ${keyholderName},` : "Hi,";
   const owner = ownerName ?? "Your friend";
+  const optOutBlock = relationshipId
+    ? `<p style="color:#999;font-size:11px;margin-top:24px;">
+          <a href="${PUBLIC_BASE_URL}/keyholder/optout?token=${encodeURIComponent(
+            Buffer.from(relationshipId).toString("base64"),
+          )}" style="color:#999;">Opt out as keyholder</a>
+        </p>`
+    : "";
 
   await resend.emails.send({
     from: FROM,
@@ -336,6 +389,7 @@ export async function sendUnlockRequestToKeyholder({
         <p style="color: #666; font-size: 13px;">
           You're receiving this because you are the keyholder for this LockBox.
         </p>
+        ${optOutBlock}
       </div>
     `,
   });
@@ -476,10 +530,188 @@ export async function sendWelcomeEmail({
           "Stay consistent." — The Banker
         </p>
         <p style="color: #ccc; font-size: 11px;">
-          LockBox · <a href="https://lockboxfinance.com" style="color:#ccc;">lockboxfinance.com</a> · 
+          LockBox · <a href="https://lockboxfinance.com" style="color:#ccc;">lockboxfinance.com</a> ·
           <a href="mailto:support@lockboxfinance.com" style="color:#ccc;">support@lockboxfinance.com</a>
         </p>
       </div>
     `,
+  });
+}
+
+// ============================================================
+// Sprint 11 — Keyholder Lifecycle emails (plain text)
+// ============================================================
+
+// ------------------------------------------------------------
+// Welcome email — sent when a keyholder accepts their invite
+// ------------------------------------------------------------
+export async function sendKeyholderWelcomeEmail({
+  to,
+  keyholderName,
+  ownerName,
+  boxes,
+  relationshipId,
+}: {
+  to: string;
+  keyholderName?: string | null;
+  ownerName: string;
+  boxes: { name: string; targetAmount?: number | null }[];
+  relationshipId: string;
+}) {
+  const first = keyholderName?.split(" ")[0] ?? "there";
+  const body = `Hey ${first},
+
+${ownerName} has added you as a keyholder on LockBox.
+
+Here's what that means.
+
+On LockBox, people lock money into named boxes to protect it from themselves. As a keyholder, you're their accountability partner. If they try to access their money early, you'll get a notification and the chance to approve or deny the request.
+
+You don't have access to their money. You just hold the key.
+
+Boxes you currently protect:
+${boxListText(boxes)}
+
+If someone sends you an approval request, you'll get a separate email with the details and a link to respond.
+
+Darian
+Founder, LockBox
+lockboxfinance.com${keyholderOptOutFooter(relationshipId)}`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "You're now a keyholder on LockBox",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
+// Scope update email — sent when existing keyholder gets access to more boxes
+// ------------------------------------------------------------
+export async function sendKeyholderScopeUpdateEmail({
+  to,
+  keyholderName,
+  ownerName,
+  allBoxes,
+  newBoxes,
+  relationshipId,
+}: {
+  to: string;
+  keyholderName?: string | null;
+  ownerName: string;
+  allBoxes: { name: string; targetAmount?: number | null }[];
+  newBoxes: { name: string }[];
+  relationshipId: string;
+}) {
+  const first = keyholderName?.split(" ")[0] ?? "there";
+  const addedList = newBoxes.map((b) => b.name).join(", ");
+  const body = `Hey ${first},
+
+${ownerName} has updated your keyholder access on LockBox.
+
+Here's your current access:
+
+Boxes you protect for ${ownerName}:
+${boxListText(allBoxes)}
+
+What changed:
+${addedList} ${newBoxes.length === 1 ? "was" : "were"} added to your access.
+
+If you have any questions, you can reply to this email.
+
+Darian
+Founder, LockBox
+lockboxfinance.com${keyholderOptOutFooter(relationshipId)}`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "Your keyholder access has been updated",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
+// Owner notification — a keyholder stepped down via opt-out page
+// ------------------------------------------------------------
+export async function sendKeyholderOptOutOwnerNotice({
+  to,
+  ownerName,
+  keyholderDisplay,
+  affectedBoxNames,
+}: {
+  to: string;
+  ownerName?: string | null;
+  keyholderDisplay: string;
+  affectedBoxNames: string[];
+}) {
+  const first = ownerName?.split(" ")[0] ?? "there";
+  const affected =
+    affectedBoxNames.length > 0
+      ? affectedBoxNames.map((n) => `• ${n}`).join("\n")
+      : "(no active boxes)";
+  const body = `Hey ${first},
+
+${keyholderDisplay} has stepped down as your keyholder on LockBox.
+
+Affected boxes:
+${affected}
+
+Any of these boxes that are marked Keyholder will need a new keyholder assigned — or you can switch them to Flexible protection.
+
+You can manage this in Settings → Keyholders.
+
+Darian
+Founder, LockBox
+lockboxfinance.com`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "Your keyholder stepped down",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
+// Keyholder notification — owner removed them
+// ------------------------------------------------------------
+export async function sendKeyholderRemovedByOwnerEmail({
+  to,
+  keyholderName,
+  ownerName,
+  affectedBoxNames,
+}: {
+  to: string;
+  keyholderName?: string | null;
+  ownerName: string;
+  affectedBoxNames: string[];
+}) {
+  const first = keyholderName?.split(" ")[0] ?? "there";
+  const affected =
+    affectedBoxNames.length > 0
+      ? affectedBoxNames.map((n) => `• ${n}`).join("\n")
+      : "(no active boxes)";
+  const body = `Hey ${first},
+
+${ownerName} has removed you as a keyholder on LockBox.
+
+Affected boxes:
+${affected}
+
+You will no longer receive approval requests for these boxes. No further action is needed from you.
+
+If you have questions, you can reply to this email.
+
+Darian
+Founder, LockBox
+lockboxfinance.com`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "You've been removed as a keyholder",
+    text: body,
   });
 }

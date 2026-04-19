@@ -109,6 +109,80 @@ export async function POST(req: NextRequest) {
         })
       : null;
 
+    // Sprint 11 — scope-update path: if there's already an ACTIVE SELECTED
+    // relationship with this keyholder, add any new boxIds to the existing
+    // relationship and send the scope-update email instead of a fresh invite.
+    if (
+      existingRelationship &&
+      existingRelationship.status === "ACTIVE" &&
+      existingRelationship.scopeType === "SELECTED" &&
+      scopeType === "SELECTED" &&
+      Array.isArray(boxIds) &&
+      boxIds.length > 0
+    ) {
+      // Find which boxIds are genuinely new.
+      const existingLinks = await prisma.keyholderRelationshipBox.findMany({
+        where: { relationshipId: existingRelationship.id },
+        select: { boxId: true },
+      });
+      const existingSet = new Set(existingLinks.map((l) => l.boxId));
+      const newBoxIds = (boxIds as string[]).filter((bId) => !existingSet.has(bId));
+
+      if (newBoxIds.length > 0) {
+        await prisma.keyholderRelationshipBox.createMany({
+          data: newBoxIds.map((boxId) => ({
+            relationshipId: existingRelationship.id,
+            boxId,
+          })),
+          skipDuplicates: true,
+        });
+
+        await prisma.auditEvent.create({
+          data: {
+            actor: "USER",
+            actorId: session.user.id,
+            action: "KEYHOLDER_SCOPE_UPDATED",
+            targetId: existingRelationship.id,
+            metadata: JSON.stringify({ addedBoxIds: newBoxIds }),
+          },
+        });
+
+        // Compose the full (all) and newly added box lists for the email.
+        const allJoins = await prisma.keyholderRelationshipBox.findMany({
+          where: { relationshipId: existingRelationship.id },
+          include: { box: { select: { name: true, targetAmount: true, isClosed: true } } },
+        });
+        const allBoxes = allJoins
+          .filter((j) => !j.box.isClosed)
+          .map((j) => ({ name: j.box.name, targetAmount: j.box.targetAmount }));
+        const newBoxesMeta = await prisma.box.findMany({
+          where: { id: { in: newBoxIds } },
+          select: { name: true },
+        });
+
+        try {
+          const { sendKeyholderScopeUpdateEmail } = await import("@/lib/email");
+          await sendKeyholderScopeUpdateEmail({
+            to: existingProfile!.email,
+            keyholderName: existingProfile!.name,
+            ownerName: session.user.name ?? session.user.email ?? "Your LockBox user",
+            allBoxes,
+            newBoxes: newBoxesMeta.map((b) => ({ name: b.name })),
+            relationshipId: existingRelationship.id,
+          });
+        } catch (err) {
+          console.error("[keyholders] scope-update email failed:", err);
+        }
+
+        return NextResponse.json(
+          { ok: true, relationshipId: existingRelationship.id, scopeUpdated: true, addedBoxCount: newBoxIds.length },
+          { status: 200 },
+        );
+      }
+
+      // Nothing new to add — fall through to the existing 409.
+    }
+
     if (existingRelationship) {
       return NextResponse.json(
         {
@@ -157,6 +231,7 @@ export async function POST(req: NextRequest) {
       keyholderName: name ?? null,
       ownerName: session.user.name ?? session.user.email,
       inviteToken: relationship.inviteToken,
+      relationshipId: relationship.id,
     });
 
     // Audit log

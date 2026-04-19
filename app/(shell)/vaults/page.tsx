@@ -62,6 +62,7 @@ export default function VaultsPage() {
 }
 
 function VaultsPageInner() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const boxParam = searchParams.get("box");
   const [highlightId, setHighlightId] = useState<string | null>(boxParam);
@@ -93,21 +94,68 @@ function VaultsPageInner() {
   const [renameModal, setRenameModal] = useState<null | { vaultId: string }>(null);
   const [dueDateModal, setDueDateModal] = useState<null | { vaultId: string }>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // Sprint 11 — active keyholder relationships, used to derive missingKeyholder state
+  type ActiveKH = {
+    id: string;
+    status: string;
+    scopeType: string;
+    boxes?: { boxId: string }[];
+  };
+  const [activeKeyholders, setActiveKeyholders] = useState<ActiveKH[]>([]);
 
   const fetchBoxes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch("/api/boxes?includeClosed=1");
-      if (!res.ok) throw new Error("Failed to load");
-      const data = await res.json();
-      setBoxes(data);
+      const [boxesRes, khRes] = await Promise.all([
+        fetch("/api/boxes?includeClosed=1"),
+        fetch("/api/keyholders"),
+      ]);
+      if (!boxesRes.ok) throw new Error("Failed to load");
+      const boxesData = await boxesRes.json();
+      setBoxes(boxesData);
+      if (khRes.ok) {
+        const khData: ActiveKH[] = await khRes.json();
+        if (Array.isArray(khData)) {
+          setActiveKeyholders(khData.filter((k) => k.status === "ACTIVE"));
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  async function handleSwitchToFlexible(boxId: string) {
+    const res = await fetch(`/api/boxes/${boxId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "switchToFlexible" }),
+    });
+    if (res.ok) {
+      setToast("Switched to Flexible.");
+      fetchBoxes();
+      setTimeout(() => setToast(null), 2500);
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setToast(data.error ?? "Could not switch.");
+      setTimeout(() => setToast(null), 3000);
+    }
+  }
+
+  function isBoxMissingKeyholder(boxId: string, lockType: string, isClosed: boolean) {
+    if (isClosed) return false;
+    if (lockType !== "KEYHOLDER") return false;
+    const anyAll = activeKeyholders.some((k) => k.scopeType === "ALL");
+    if (anyAll) return false;
+    const selectedCovers = activeKeyholders.some(
+      (k) =>
+        k.scopeType === "SELECTED" &&
+        (k.boxes ?? []).some((b) => b.boxId === boxId),
+    );
+    return !selectedCovers;
+  }
 
   async function handleReopen(id: string) {
     const res = await fetch(`/api/boxes/${id}`, {
@@ -128,7 +176,10 @@ function VaultsPageInner() {
 
   const activeBoxes = boxes.filter((b) => !b.isClosed);
   const closedBoxes = boxes.filter((b) => b.isClosed);
-  const vaults = activeBoxes.map(toVaultShape);
+  const vaults = activeBoxes.map((b) => ({
+    ...toVaultShape(b),
+    missingKeyholder: isBoxMissingKeyholder(b.id, b.lockType, b.isClosed),
+  }));
   const closedVaults = closedBoxes.map(toVaultShape);
   const getBox = (id: string) => boxes.find((b) => b.id === id);
 
@@ -145,6 +196,8 @@ function VaultsPageInner() {
         onRenameBox={(id) => setRenameModal({ vaultId: id })}
         onEditDueDate={(id) => setDueDateModal({ vaultId: id })}
         onReopenBox={handleReopen}
+        onSwitchToFlexible={handleSwitchToFlexible}
+        onAssignKeyholder={() => router.push("/keyholders")}
         setShowTransfer={setShowTransfer}
         setAddFundsModal={setAddFundsModal}
         setLockModal={setLockModal}

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { sendKeyholderWelcomeEmail } from "@/lib/email";
 
 export async function PATCH(
   req: NextRequest,
@@ -65,6 +66,45 @@ export async function PATCH(
         targetId: relationship.id,
       },
     });
+
+    // Sprint 11 — send welcome email to the keyholder once they accept.
+    // Best-effort; never fail the acceptance if email send fails.
+    try {
+      const owner = await prisma.user.findUnique({
+        where: { id: relationship.userId },
+        select: { name: true, email: true },
+      });
+
+      let boxesForEmail: { name: string; targetAmount: number | null }[] = [];
+      if (relationship.scopeType === "SELECTED") {
+        const joins = await prisma.keyholderRelationshipBox.findMany({
+          where: { relationshipId: relationship.id },
+          include: { box: { select: { name: true, targetAmount: true, isClosed: true } } },
+        });
+        boxesForEmail = joins
+          .filter((j) => !j.box.isClosed)
+          .map((j) => ({ name: j.box.name, targetAmount: j.box.targetAmount }));
+      } else {
+        boxesForEmail = await prisma.box.findMany({
+          where: {
+            userId: relationship.userId,
+            isClosed: false,
+            lockType: "KEYHOLDER",
+          },
+          select: { name: true, targetAmount: true },
+        });
+      }
+
+      await sendKeyholderWelcomeEmail({
+        to: relationship.profile.email,
+        keyholderName: relationship.profile.name,
+        ownerName: owner?.name ?? owner?.email ?? "Your LockBox user",
+        boxes: boxesForEmail,
+        relationshipId: relationship.id,
+      });
+    } catch (err) {
+      console.error("[keyholders/accept] welcome email failed:", err);
+    }
 
     return NextResponse.json({ ok: true, accepted: true });
   } catch (error) {

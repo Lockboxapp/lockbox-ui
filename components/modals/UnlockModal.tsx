@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import posthog from "posthog-js";
 
 type Vault = {
   id: string;
@@ -79,7 +80,19 @@ export default function UnlockModal({
 
           <div className="grid grid-cols-2 gap-3">
             <button onClick={onClose} className="py-3 rounded-xl border">Cancel</button>
-            <button onClick={() => onSubmit(amount, reason, sendToPartner)} className="py-3 rounded-xl bg-emerald-600 text-white">
+            <button
+              onClick={() => {
+                posthog.capture("unlock_request_submitted", {
+                  vault_id: vault.id,
+                  vault_name: vault.name,
+                  amount,
+                  send_to_partner: sendToPartner,
+                  has_reason: reason.trim().length > 0,
+                });
+                onSubmit(amount, reason, sendToPartner);
+              }}
+              className="py-3 rounded-xl bg-emerald-600 text-white"
+            >
               Submit
             </button>
           </div>
