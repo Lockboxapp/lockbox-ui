@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 19, 2026 — Sprint 7 complete, deployed.
+# Last updated: April 19, 2026 — Sprint 8 complete, all known bugs resolved.
 # ============================================================
 
 ---
@@ -442,7 +442,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 7, April 15, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 8, April 19, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -451,9 +451,10 @@ BUILT AND DEPLOYED:
   Vaults screen — all box types, lock/unlock, deposit, transfer, close, reopen
   Wallet — system box, pinned at top of /vaults, card spend source
   Lock behavior system — SOFT/HARD/KEYHOLDER, server + client enforcement
+  State machine — re-lock after unlock works; transfer/withdraw gate on status first
   Keyholder invite flow — email via Resend, accept page, relationship active
-  Keyholder management — /keyholders, scope, revoke
-  Unlock request flow — UNLOCK_BOX and TRANSFER_OUT, both working
+  Keyholder management — /keyholders, scope, revoke, live refresh on focus
+  Unlock request flow — UNLOCK and TRANSFER types, both working
   Keyholder approval page — /keyholder/[token], standalone, no auth
   Banker intervention — in-form card on KEYHOLDER unlock, transfer swap
   Close box — blockers checked, funds moved to Wallet, archived
@@ -466,6 +467,7 @@ BUILT AND DEPLOYED:
   Add funds source picker — Move from Wallet vs external deposit
   Protection-type messaging — correct language per lockType throughout
   Keyholder page live updates — refetch on window focus / visibility change
+  Wallet excluded from keyholder box selectors globally
 
 ---
 
@@ -493,28 +495,14 @@ BUILT AND DEPLOYED:
 
 ## SECTION 15 — KNOWN BUGS (Open as of April 19, 2026)
 
-BUG-01 — HARD/KEYHOLDER box cannot re-lock after unlock [CRITICAL]
-  Symptom: After unlock, re-lock shows "Cannot lock a box with status: UNLOCKED"
-  Cause: Lock route whitelist excludes UNLOCKED status.
-  Fix: Accept UNLOCKED as valid pre-lock status in the lock route.
+No known bugs. All cleared in Sprint 8 (commit 589a8d7).
 
-BUG-02 — Transfers blocked on HARD box after keyholder unlock [CRITICAL]
-  Symptom: After HARD box unlocked, transfer blocked with keyholder error.
-  Cause: Transfer permission checks lockType not status.
-  Fix: if (status === 'UNLOCKED') allow transfer regardless of lockType.
-  NOTE: BUG-01 and BUG-02 are the same state machine issue. Fix in one PR.
-
-BUG-03 — Wallet appears in keyholder box selector
-  Symptom: Wallet is selectable in keyholder invite "Selected Boxes" picker.
-  Fix: Filter isWallet: false from ALL keyholder box selectors globally.
-
-BUG-04 — New box missing from keyholder dropdown during creation
-  Symptom: Box being created doesn't appear in keyholder dropdown simultaneously.
-  Fix: Save box to DB first, then open keyholder flow in sequence.
-
-BUG-05 — Keyholder invite page: text input low contrast
-  Symptom: Input text is very light / hard to read.
-  Fix: Audit all inputs in keyholder flow. Check for global input style issue.
+RESOLVED:
+  BUG-01 — Lock route now accepts UNLOCKED status. Fixed in Sprint 8.
+  BUG-02 — Transfer/withdraw gate on status first, then lockType. Fixed in Sprint 8.
+  BUG-03 — Wallet filtered from keyholder box selector. Fixed in Sprint 8.
+  BUG-04 — Box list refetches on focus at /keyholders. Fixed in Sprint 8.
+  BUG-05 — text-gray-900 added to keyholder invite inputs. Fixed in Sprint 8.
 
 ---
 
@@ -586,6 +574,14 @@ Sprint 7  — Request Flow + State Accuracy (Apr 15, commit 5dce447)
   window focus, SOFT due date editing, protection-type messaging,
   success messages named to keyholder, switchToFlexible server action,
   validation rules for all request flows.
+
+Sprint 8  — Bug Sprint / Final (Apr 19, commit 589a8d7)
+  BUG-01: lock route accepts UNLOCKED status for re-lock.
+  BUG-02: transfer + withdraw gate on status first, then lockType.
+  BUG-03: Wallet filtered from keyholder box selectors globally.
+  BUG-04: box list refetches on focus at /keyholders.
+  BUG-05: text-gray-900 on keyholder invite inputs.
+  All 5 known bugs resolved. Section 15 cleared.
 
 Hotfix — Stale Unlock Requests Cleared (Apr 15)
   Stale PENDING unlock requests cleared via SQL in Neon console.
