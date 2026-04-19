@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { captureServer } from "@/lib/posthog-server";
 
 ("");
 
@@ -37,6 +38,11 @@ export async function POST(
     const updated = await prisma.vault.update({
       where: { id: vaultId },
       data: { balance: { increment: amt } }, // atomic increment
+    });
+
+    await captureServer("vault_deposit", session.user.id, {
+      vault_id: vaultId,
+      amount: amt,
     });
 
     return NextResponse.json(updated, { status: 200 });

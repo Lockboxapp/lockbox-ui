@@ -291,7 +291,7 @@ export async function POST(req: NextRequest) {
     const keyholderName =
       activeRelationship?.profile.name ?? activeRelationship?.profile.email ?? null;
 
-    captureServer("unlock_requested", session.user.id, {
+    await captureServer("unlock_requested", session.user.id, {
       lockType: box.lockType,
       requestType: isTransfer ? "TRANSFER" : "UNLOCK",
     });

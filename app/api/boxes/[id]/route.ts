@@ -232,7 +232,7 @@ export async function PATCH(
         }
       }
 
-      captureServer("box_locked", session.user.id, { lockType: resolvedLockType });
+      await captureServer("box_locked", session.user.id, { lockType: resolvedLockType });
       return NextResponse.json(lockedBox);
     }
     // --------------------------------------------------------

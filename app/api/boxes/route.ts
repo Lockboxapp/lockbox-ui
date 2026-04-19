@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    captureServer("box_created", session.user.id, { lockType: resolvedLockType });
+    await captureServer("box_created", session.user.id, { lockType: resolvedLockType });
 
     return NextResponse.json(box, { status: 201 });
   } catch (error) {

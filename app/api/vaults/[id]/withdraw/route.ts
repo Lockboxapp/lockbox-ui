@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TX, type TransactionType } from "@/lib/types";
 import { prisma } from "@/lib/db";
+import { captureServer } from "@/lib/posthog-server";
 
 export async function PATCH(
   req: Request,
@@ -43,6 +44,11 @@ export async function PATCH(
       description: "Withdrawal",
       postedAt: new Date(),
     },
+  });
+
+  await captureServer("vault_withdraw", user.id, {
+    vault_id: vault.id,
+    amount: amt,
   });
 
   return NextResponse.json(updated);

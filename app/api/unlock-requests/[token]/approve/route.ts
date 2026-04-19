@@ -14,6 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS, UNLOCK_STATUS } from "@/lib/types";
+import { captureServer } from "@/lib/posthog-server";
 
 async function verifyKeyholderSession(
   sessionToken: string,
@@ -187,6 +188,11 @@ export async function POST(
           keyholderEmail: sessionCheck.email,
         }),
       },
+    });
+
+    await captureServer("unlock_approved", unlockRequest.box.userId, {
+      box_id: unlockRequest.boxId,
+      request_type: unlockRequest.requestType,
     });
 
     return NextResponse.json({

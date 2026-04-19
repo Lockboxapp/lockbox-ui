@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    captureServer("keyholder_invited", session.user.id);
+    await captureServer("keyholder_invited", session.user.id);
 
     return NextResponse.json(
       { ok: true, relationshipId: relationship.id },

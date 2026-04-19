@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 
 export default function SignInPage() {
   const [email, setEmail] = useState("");
@@ -15,13 +16,14 @@ export default function SignInPage() {
     const res = await signIn("credentials", {
       email,
       password,
-      redirect: true,
-      callbackUrl: "/",
+      redirect: false,
     });
     if (res?.error) {
       setError("Invalid credentials");
       return;
     }
+    posthog.identify(email, { email });
+    posthog.capture("user_signed_in", { email });
     router.push("/");
   };
 

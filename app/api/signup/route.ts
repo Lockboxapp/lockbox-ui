@@ -85,7 +85,7 @@ export async function POST(req: Request) {
       console.error("[signup] welcome email failed:", err);
     }
 
-    captureServer("user_signed_up", user.id);
+    await captureServer("user_signed_up", user.id);
 
     return NextResponse.json({ ok: true, user }, { status: 201 });
   } catch (err: any) {

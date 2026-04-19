@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
       create: { email: parsed.data.email },
     });
 
-    captureServer("waitlist_signup", parsed.data.email, {
+    await captureServer("waitlist_signup", parsed.data.email, {
       source: parsed.data.source ?? "unknown",
     });
 

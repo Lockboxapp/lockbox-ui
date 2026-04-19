@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TX, type TransactionType } from "@/lib/types";
 import { prisma } from "@/lib/db"; // or instantiate here if you don't have this helper
+import { captureServer } from "@/lib/posthog-server";
 
 export async function POST(req: Request) {
   try {
@@ -88,6 +89,12 @@ export async function POST(req: Request) {
       });
 
       return { from: updatedFrom, to: updatedTo };
+    });
+
+    await captureServer("vault_transfer", user.id, {
+      from_vault_id: fromVaultId,
+      to_vault_id: toVaultId,
+      amount: amtNum,
     });
 
     return NextResponse.json(result, { status: 200 });
