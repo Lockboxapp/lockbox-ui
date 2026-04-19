@@ -159,11 +159,10 @@ export async function PATCH(
     // LOCK ACTION — server enforces all lock rules
     // --------------------------------------------------------
     if (action === "lock") {
-      // Only boxes in CREATED or FUNDING status can be locked
-      if (
-        box.status !== BOX_STATUS.CREATED &&
-        box.status !== BOX_STATUS.FUNDING
-      ) {
+      // Sprint 8 BUG-01 fix: UNLOCKED boxes can be re-locked. This was the root
+      // cause of HARD/KEYHOLDER boxes becoming stuck after self-unlock or approval.
+      const lockableStatuses = [BOX_STATUS.CREATED, BOX_STATUS.FUNDING, "UNLOCKED"];
+      if (!lockableStatuses.includes(box.status)) {
         return NextResponse.json(
           { error: `Cannot lock a box with status: ${box.status}` },
           { status: 400 },

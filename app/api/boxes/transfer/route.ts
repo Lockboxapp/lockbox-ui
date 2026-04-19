@@ -57,32 +57,32 @@ export async function POST(req: NextRequest) {
     }
 
     // ── LOCK ENFORCEMENT ─────────────────────────────────────
+    // Sprint 8 BUG-02 fix: gate on STATUS first, then lockType.
+    // UNLOCKED boxes can always transfer regardless of lockType (board decision).
 
-    if (fromBox.lockType === "HARD") {
+    if (fromBox.status === "UNLOCKED") {
+      // Allow — box was explicitly unlocked via self-unlock or keyholder approval.
+    } else if (fromBox.lockType === "HARD" && fromBox.status === "LOCKED") {
       return NextResponse.json(
         {
           error: "This box is fully locked.",
           locked: true,
           lockType: "HARD",
-          message: "Submit an unlock request to access these funds before transferring.",
+          message: "Unlock this box first, then transfer.",
         },
         { status: 403 },
       );
-    }
-
-    if (fromBox.lockType === "KEYHOLDER") {
+    } else if (fromBox.lockType === "KEYHOLDER" && fromBox.status === "LOCKED") {
       return NextResponse.json(
         {
           error: "Keyholder approval required.",
           locked: true,
           lockType: "KEYHOLDER",
-          message: "Your keyholder must approve an unlock before you can transfer funds from this box.",
+          message: "Your keyholder must approve a transfer from this box.",
         },
         { status: 403 },
       );
-    }
-
-    if (!TRANSFERABLE_STATUSES.includes(fromBox.status)) {
+    } else if (!TRANSFERABLE_STATUSES.includes(fromBox.status)) {
       return NextResponse.json(
         {
           error: "This box cannot be used as a transfer source right now.",

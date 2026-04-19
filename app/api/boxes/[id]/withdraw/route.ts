@@ -37,21 +37,22 @@ export async function POST(
     }
 
     // ── LOCK ENFORCEMENT ─────────────────────────────────────
-    // Backend is source of truth — no frontend bypass possible
+    // Sprint 8 BUG-02 fix: gate on STATUS first, then lockType.
+    // UNLOCKED boxes can always withdraw regardless of lockType (board decision).
 
-    if (box.lockType === "HARD") {
+    if (box.status === "UNLOCKED") {
+      // Allow — box was explicitly unlocked.
+    } else if (box.lockType === "HARD") {
       return NextResponse.json(
         {
           error: "This box is fully locked.",
           locked: true,
           lockType: "HARD",
-          message: "Submit an unlock request to access these funds.",
+          message: "Unlock this box first to withdraw.",
         },
         { status: 403 },
       );
-    }
-
-    if (box.lockType === "KEYHOLDER") {
+    } else if (box.lockType === "KEYHOLDER") {
       return NextResponse.json(
         {
           error: "Keyholder approval required.",
@@ -64,7 +65,7 @@ export async function POST(
       );
     }
 
-    // SOFT — partial lock enforcement via lockedAmount (source of truth)
+    // Partial lock enforcement via lockedAmount (source of truth)
     const body = await req.json();
     const { amountInDollars } = body;
 

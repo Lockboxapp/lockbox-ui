@@ -27,7 +27,7 @@ type KeyholderRelationship = {
 
 type PageState = "loading" | "ready" | "invite_form";
 
-type BoxLite = { id: string; name: string; status: string };
+type BoxLite = { id: string; name: string; status: string; isWallet?: boolean };
 
 export default function KeyholdersPage() {
   const { data: session } = useSession();
@@ -56,22 +56,14 @@ export default function KeyholdersPage() {
   useEffect(() => {
     fetchRelationships();
     // Fetch boxes for SELECTED scope selector
-    fetch("/api/boxes")
-      .then((r) => r.json())
-      .then((data: BoxLite[]) => {
-        if (Array.isArray(data)) {
-          setAvailableBoxes(
-            data.filter((b) => b.status !== "CLOSED").map((b) => ({ id: b.id, name: b.name, status: b.status })),
-          );
-        }
-      })
-      .catch(() => {});
+    fetchBoxes();
 
     // Sprint 7 — refetch when the user returns to the tab so ACTIVE status updates
     // immediately after a keyholder accepts via email in another tab/window.
-    const onFocus = () => fetchRelationships();
+    // Sprint 8 BUG-04 — also refetch boxes on focus so recently-created boxes appear.
+    const onFocus = () => { fetchRelationships(); fetchBoxes(); };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") fetchRelationships();
+      if (document.visibilityState === "visible") { fetchRelationships(); fetchBoxes(); }
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
@@ -80,6 +72,22 @@ export default function KeyholdersPage() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
+
+  // Sprint 8 BUG-03 — filter isWallet from box selector globally.
+  // Sprint 8 BUG-04 — extracted so it can be re-called on window focus.
+  async function fetchBoxes() {
+    try {
+      const r = await fetch("/api/boxes");
+      const data: BoxLite[] = await r.json();
+      if (Array.isArray(data)) {
+        setAvailableBoxes(
+          data
+            .filter((b) => b.status !== "CLOSED" && !b.isWallet)
+            .map((b) => ({ id: b.id, name: b.name, status: b.status })),
+        );
+      }
+    } catch {}
+  }
 
   async function fetchRelationships() {
     try {
@@ -240,7 +248,7 @@ export default function KeyholdersPage() {
                 placeholder="trusted@example.com"
                 required
                 autoFocus
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
               {/* Self-keyholder validation — frontend enforcement */}
               {isSelfEmail && inviteEmail.length > 0 && (
@@ -261,7 +269,7 @@ export default function KeyholdersPage() {
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
                 placeholder="e.g. Alex"
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
 
