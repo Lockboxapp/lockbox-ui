@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 19, 2026 — Sprint 9 complete (growth infrastructure).
+# Last updated: April 19, 2026 — Sprint 10 complete (welcome email sequence).
 # ============================================================
 
 ---
@@ -138,9 +138,14 @@ Convert to dollars only at the display layer. Never store floats for money.
 
 ### WaitlistEntry
   model WaitlistEntry {
-    id        String   @id @default(cuid())
-    email     String   @unique
-    createdAt DateTime @default(now())
+    id           String    @id @default(cuid())
+    email        String    @unique
+    createdAt    DateTime  @default(now())
+    // Sprint 10 — welcome email sequence tracking
+    email1SentAt DateTime?
+    email2SentAt DateTime?
+    email3SentAt DateTime?
+    unsubscribed Boolean   @default(false)
   }
 
 ### UnlockRequest
@@ -255,7 +260,10 @@ Convert to dollars only at the display layer. Never store floats for money.
   POST /api/onboarding/complete   <- marks User.onboardingCompletedAt (idempotent)
 
 ### Waitlist
-  POST /api/waitlist              <- add email to waitlist
+  POST /api/waitlist                            <- add email + send Email 1 immediately
+  GET  /api/waitlist/unsubscribe?token=<b64(id)> <- sets unsubscribed=true
+  GET  /api/cron/waitlist-emails                <- Vercel cron; Bearer CRON_SECRET;
+                                                   sends Day 3 / Day 7 emails
 
 ### Card
   POST /api/card/simulate         <- simulate card spend (isAdmin only, dev tool)
@@ -604,6 +612,24 @@ Sprint 9  — Growth Infrastructure (Apr 19, commit 9ea3d9d)
   Admin support tools: manual move funds, trigger password reset, restrict/unrestrict
     account; schema adds User.onboardingCompletedAt + isRestricted + restrictedAt +
     restrictedReason; lib/auth.ts blocks restricted sign-in.
+
+Hotfix — PostHog Serverless Flush (Apr 19, commit 3b2e021)
+  lib/posthog-server.ts: removed singleton + captureServer wrapper; exports only
+    getServerPosthog() factory with flushAt:1 + flushInterval:0. Every capture site
+    now uses explicit pattern: create client, capture, await shutdown. Events flush
+    before Vercel closes the function.
+
+Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
+  WaitlistEntry adds email1SentAt / email2SentAt / email3SentAt / unsubscribed.
+  lib/email.ts: plain-text senders for Email 1/2/3 from darian@lockboxfinance.com,
+    verbatim approved copy, base64-token unsubscribe footer.
+  Email 1 sent immediately on POST /api/waitlist (idempotent via email1SentAt).
+  Vercel cron GET /api/cron/waitlist-emails runs daily 10am UTC behind CRON_SECRET;
+    Day 3 sends Email 2, Day 7 sends Email 3, skips unsubscribed, sequential
+    (Email 3 requires Email 2 sent).
+  GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
+    returns plain HTML confirmation regardless of token validity.
+  vercel.json crons block + CRON_SECRET placeholder in .env.local.
 
 Hotfix — Stale Unlock Requests Cleared (Apr 15)
   Stale PENDING unlock requests cleared via SQL in Neon console.
