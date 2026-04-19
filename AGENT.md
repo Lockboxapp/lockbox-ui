@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 19, 2026 — Sprint 10 complete (welcome email sequence).
+# Last updated: April 19, 2026 — Sprint 11 complete (keyholder lifecycle).
 # ============================================================
 
 ---
@@ -171,15 +171,19 @@ Convert to dollars only at the display layer. Never store floats for money.
 
 ### KeyholderRelationship
   model KeyholderRelationship {
-    id        String   @id @default(cuid())
-    userId    String
-    email     String
-    name      String?
-    scope     String   // 'ALL' | 'SELECTED'
-    status    String   // 'PENDING' | 'ACTIVE' | 'PAUSED' | 'REVOKED'
-    token     String   @unique
-    expiresAt DateTime
-    createdAt DateTime @default(now())
+    id              String    @id @default(cuid())
+    userId          String
+    profileId       String
+    scopeType       String    // 'ALL' | 'SELECTED'
+    status          String    // 'PENDING' | 'ACTIVE' | 'PAUSED' | 'REVOKED'
+    inviteToken     String    @unique
+    inviteExpiresAt DateTime?
+    acceptedAt      DateTime?
+    revokedAt       DateTime?
+    revokedBy       String?   // Sprint 11 — 'KEYHOLDER' (opt-out) | 'OWNER' (removed)
+    safetyMode      Boolean   @default(false)
+    createdAt       DateTime  @default(now())
+    updatedAt       DateTime  @updatedAt
   }
 
 ### KeyholderRelationshipBox (join table for SELECTED scope)
@@ -244,11 +248,20 @@ Convert to dollars only at the display layer. Never store floats for money.
   POST /api/unlock-requests/[token]/deny      <- keyholder denies (no auth)
 
 ### Keyholders
-  GET    /api/keyholders                <- all relationships for user
-  POST   /api/keyholders                <- invite keyholder (sends Resend email)
-  PATCH  /api/keyholders/:id            <- update (scope, status)
-  DELETE /api/keyholders/:id            <- revoke
-  POST   /api/keyholders/accept/[token] <- accept invitation (no auth)
+  GET    /api/keyholders                   <- all relationships for user
+  POST   /api/keyholders                   <- invite keyholder (sends Resend email);
+                                              also detects existing ACTIVE SELECTED
+                                              relationship + new boxIds and sends
+                                              scope-update email instead of new invite
+  PATCH  /api/keyholders/[token]           <- keyholder accepts invite (no auth),
+                                              sends welcome email on success
+  DELETE /api/keyholders/manage/[id]       <- owner removes keyholder (Sprint 11);
+                                              sets status=REVOKED, revokedBy=OWNER,
+                                              notifies keyholder by email
+  GET    /api/keyholder/optout?token=      <- returns opt-out context (no auth)
+  POST   /api/keyholder/optout             <- keyholder steps down via opt-out page
+                                              (Sprint 11); no auth; status=REVOKED,
+                                              revokedBy=KEYHOLDER, notifies owner
 
 ### Admin
   GET /api/admin/stats            <- usage stats (isAdmin guard — 403 otherwise)
@@ -460,7 +473,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 9, April 19, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 11, April 19, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -491,6 +504,15 @@ BUILT AND DEPLOYED:
   Landing page waitlist-only — no Get started / Sign in; app still reachable by URL
   Admin support tools — manual money move, password reset trigger, restrict account
   Account restriction enforcement in lib/auth.ts credentials flow
+  Waitlist welcome email sequence — Email 1 on signup, Day 3 + Day 7 via Vercel cron
+  Waitlist unsubscribe endpoint with base64-token URL
+  Keyholder opt-out page + API — standalone, no auth, token-based
+  Owner remove keyholder — only in Settings → Keyholders → Manage; confirmation
+    modal with affected-box warning; notifies keyholder by email
+  Missing keyholder recovery state — derived per box; amber banner on vault card
+    with Assign / Switch to Flexible CTAs; banker nudge on home
+  Keyholder welcome email on acceptance + scope update email when existing
+    keyholder gets new boxes; opt-out link in all keyholder emails
 
 ---
 
@@ -630,6 +652,24 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 11 — Keyholder Lifecycle (Apr 19, commit a159310)
+  KeyholderRelationship adds revokedBy String? ('KEYHOLDER' | 'OWNER').
+  Keyholder opt-out: standalone /keyholder/optout page + POST /api/keyholder/optout.
+    No auth. Token = base64(relationshipId). Sets status=REVOKED, revokedBy=KEYHOLDER,
+    emails owner with affected boxes.
+  Owner remove keyholder: DELETE /api/keyholders/manage/[id] behind session auth.
+    UI only in /keyholders page (Settings → Keyholders → Manage → Remove).
+    Confirmation modal warns when removal would leave boxes uncovered.
+    Notifies keyholder by email.
+  Missing keyholder recovery: vaults/page.tsx derives missingKeyholder per box
+    from active relationships; VaultsScreen shows amber banner with Assign /
+    Switch to Flexible CTAs. Home banker ladder gains nudge above unlock_pending.
+  Welcome email on acceptance + scope update email on box-addition (POST
+    /api/keyholders now handles existing-ACTIVE-SELECTED + new boxIds as an
+    update path instead of 409).
+  All keyholder-facing emails (invite, unlock request, transfer request, welcome,
+    scope update) now carry an opt-out footer linked to /keyholder/optout.
 
 Hotfix — Stale Unlock Requests Cleared (Apr 15)
   Stale PENDING unlock requests cleared via SQL in Neon console.
