@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 ("");
 
@@ -40,10 +40,13 @@ export async function POST(
       data: { balance: { increment: amt } }, // atomic increment
     });
 
-    await captureServer("vault_deposit", session.user.id, {
-      vault_id: vaultId,
-      amount: amt,
+    const ph = getServerPosthog();
+    ph.capture({
+      distinctId: session.user.id,
+      event: "vault_deposit",
+      properties: { vault_id: vaultId, amount: amt },
     });
+    await ph.shutdown();
 
     return NextResponse.json(updated, { status: 200 });
   } catch (err: any) {

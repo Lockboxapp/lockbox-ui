@@ -10,7 +10,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS } from "@/lib/types";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 // ------------------------------------------------------------
 // GET — fetch a single box by id (must belong to authed user)
@@ -232,7 +232,13 @@ export async function PATCH(
         }
       }
 
-      await captureServer("box_locked", session.user.id, { lockType: resolvedLockType });
+      const ph = getServerPosthog();
+      ph.capture({
+        distinctId: session.user.id,
+        event: "box_locked",
+        properties: { lockType: resolvedLockType },
+      });
+      await ph.shutdown();
       return NextResponse.json(lockedBox);
     }
     // --------------------------------------------------------

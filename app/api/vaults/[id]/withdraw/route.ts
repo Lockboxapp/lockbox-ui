@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TX, type TransactionType } from "@/lib/types";
 import { prisma } from "@/lib/db";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 export async function PATCH(
   req: Request,
@@ -46,10 +46,13 @@ export async function PATCH(
     },
   });
 
-  await captureServer("vault_withdraw", user.id, {
-    vault_id: vault.id,
-    amount: amt,
+  const ph = getServerPosthog();
+  ph.capture({
+    distinctId: user.id,
+    event: "vault_withdraw",
+    properties: { vault_id: vault.id, amount: amt },
   });
+  await ph.shutdown();
 
   return NextResponse.json(updated);
 }

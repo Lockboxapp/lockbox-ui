@@ -13,7 +13,7 @@ import {
   createDepositAccountForCustomer,
   getServerCustomerToken,
 } from "@/lib/unit";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 // ------------------------------------------------------------
 // GET — return all boxes for the authenticated user
@@ -188,7 +188,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    await captureServer("box_created", session.user.id, { lockType: resolvedLockType });
+    const ph = getServerPosthog();
+    ph.capture({
+      distinctId: session.user.id,
+      event: "box_created",
+      properties: { lockType: resolvedLockType },
+    });
+    await ph.shutdown();
 
     return NextResponse.json(box, { status: 201 });
   } catch (error) {

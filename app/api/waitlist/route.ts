@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 const schema = z.object({
   email: z.string().email(),
@@ -27,9 +27,13 @@ export async function POST(req: NextRequest) {
       create: { email: parsed.data.email },
     });
 
-    await captureServer("waitlist_signup", parsed.data.email, {
-      source: parsed.data.source ?? "unknown",
+    const ph = getServerPosthog();
+    ph.capture({
+      distinctId: parsed.data.email,
+      event: "waitlist_signup",
+      properties: { source: parsed.data.source ?? "unknown" },
     });
+    await ph.shutdown();
 
     return NextResponse.json({ ok: true });
   } catch {

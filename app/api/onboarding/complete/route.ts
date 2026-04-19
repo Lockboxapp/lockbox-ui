@@ -9,7 +9,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 export async function POST() {
   try {
@@ -22,7 +22,12 @@ export async function POST() {
       data: { onboardingCompletedAt: new Date() },
     });
     if (result.count > 0) {
-      await captureServer("onboarding_complete", session.user.id);
+      const ph = getServerPosthog();
+      ph.capture({
+        distinctId: session.user.id,
+        event: "onboarding_complete",
+      });
+      await ph.shutdown();
     }
     return NextResponse.json({ ok: true });
   } catch (err) {

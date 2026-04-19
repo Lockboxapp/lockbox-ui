@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { sendWelcomeEmail } from "@/lib/email";
 import { z } from "zod";
-import { captureServer } from "@/lib/posthog-server";
+import { getServerPosthog } from "@/lib/posthog-server";
 
 const signupSchema = z.object({
   name: z.string().optional(),
@@ -85,7 +85,9 @@ export async function POST(req: Request) {
       console.error("[signup] welcome email failed:", err);
     }
 
-    await captureServer("user_signed_up", user.id);
+    const ph = getServerPosthog();
+    ph.capture({ distinctId: user.id, event: "user_signed_up" });
+    await ph.shutdown();
 
     return NextResponse.json({ ok: true, user }, { status: 201 });
   } catch (err: any) {
