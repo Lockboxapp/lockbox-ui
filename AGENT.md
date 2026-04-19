@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 19, 2026 — Sprint 8 complete, all known bugs resolved.
+# Last updated: April 19, 2026 — Sprint 9 complete (growth infrastructure).
 # ============================================================
 
 ---
@@ -44,7 +44,7 @@ physically out of reach until it's needed.
 | SMS            | Twilio (keyholder notifications — not yet wired)        |
 | AI/Banker      | OpenAI — NOT YET BUILT, placeholder only               |
 | BaaS           | Unit — outreach done, in evaluation, NOT integrated     |
-| Analytics      | PostHog — planned, not yet wired                        |
+| Analytics      | PostHog — wired in Sprint 9 (posthog-js + posthog-node) |
 | Monitoring     | Sentry — planned, not yet wired                         |
 | Branch pattern | main / dev / feature/*                                  |
 
@@ -101,13 +101,17 @@ architectural decision made April 7, 2026. Do not revert to a monolith.
 
 ### User
   model User {
-    id           String   @id @default(cuid())
-    name         String?
-    email        String   @unique
-    passwordHash String
-    isAdmin      Boolean  @default(false)
-    createdAt    DateTime @default(now())
-    updatedAt    DateTime @updatedAt
+    id                    String    @id @default(cuid())
+    name                  String?
+    email                 String    @unique
+    passwordHash          String
+    isAdmin               Boolean   @default(false)
+    onboardingCompletedAt DateTime?                 // Sprint 9 — set at end of /lock
+    isRestricted          Boolean   @default(false) // Sprint 9 — blocks sign-in
+    restrictedAt          DateTime?                 // Sprint 9
+    restrictedReason      String?                   // Sprint 9
+    createdAt             DateTime  @default(now())
+    updatedAt             DateTime  @updatedAt
   }
 
 ### Box
@@ -243,6 +247,12 @@ Convert to dollars only at the display layer. Never store floats for money.
 
 ### Admin
   GET /api/admin/stats            <- usage stats (isAdmin guard — 403 otherwise)
+  POST  /api/admin/move-funds     <- manual money move between any two boxes (audited)
+  POST  /api/admin/reset-password <- trigger password reset email for any user
+  PATCH /api/admin/restrict-user  <- toggle isRestricted on any user (audited)
+
+### Onboarding
+  POST /api/onboarding/complete   <- marks User.onboardingCompletedAt (idempotent)
 
 ### Waitlist
   POST /api/waitlist              <- add email to waitlist
@@ -442,7 +452,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 8, April 19, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 9, April 19, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -468,6 +478,11 @@ BUILT AND DEPLOYED:
   Protection-type messaging — correct language per lockType throughout
   Keyholder page live updates — refetch on window focus / visibility change
   Wallet excluded from keyholder box selectors globally
+  PostHog analytics — 8 events wired (waitlist, signup, onboarding, box,
+    lock, unlock, keyholder invite, share); admin onboarding completion count
+  Landing page waitlist-only — no Get started / Sign in; app still reachable by URL
+  Admin support tools — manual money move, password reset trigger, restrict account
+  Account restriction enforcement in lib/auth.ts credentials flow
 
 ---
 
@@ -475,10 +490,7 @@ BUILT AND DEPLOYED:
 
   Real money movement (BaaS) — no Unit integration. All balances are manual.
   The Banker AI — OpenAI not integrated. Placeholder only.
-  PostHog analytics — no event tracking wired.
   Sentry monitoring — not wired.
-  Landing page visit tracking — no analytics on lockboxfinance.com.
-  Onboarding completion tracking — no admin event on completion.
   Per-box virtual cards — v1.1, requires Unit.
   Plaid — deferred post-beta.
   Twilio SMS — Resend email works. Twilio not wired.
@@ -582,6 +594,16 @@ Sprint 8  — Bug Sprint / Final (Apr 19, commit 589a8d7)
   BUG-04: box list refetches on focus at /keyholders.
   BUG-05: text-gray-900 on keyholder invite inputs.
   All 5 known bugs resolved. Section 15 cleared.
+
+Sprint 9  — Growth Infrastructure (Apr 19, commit 9ea3d9d)
+  PostHog analytics: posthog-js + posthog-node; lib/posthog.ts + lib/posthog-server.ts;
+    8 events wired across waitlist/signup/onboarding/box/unlock/keyholder/share;
+    admin dashboard shows onboarding completion count.
+  Landing page waitlist-only: removed Get started + Sign in CTAs; added
+    "We'll let you know when you're in." under hero form; app still URL-accessible.
+  Admin support tools: manual move funds, trigger password reset, restrict/unrestrict
+    account; schema adds User.onboardingCompletedAt + isRestricted + restrictedAt +
+    restrictedReason; lib/auth.ts blocks restricted sign-in.
 
 Hotfix — Stale Unlock Requests Cleared (Apr 15)
   Stale PENDING unlock requests cleared via SQL in Neon console.
