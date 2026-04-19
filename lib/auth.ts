@@ -39,6 +39,13 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(creds.password, user.passwordHash);
         if (!valid) return null;
 
+        // Sprint 9 — block restricted accounts at sign-in.
+        if (user.isRestricted) {
+          throw new Error(
+            "Account restricted. Contact support@lockboxfinance.com",
+          );
+        }
+
         // What ends up in the JWT as the "user"
         return { id: user.id, name: user.name ?? null, email: user.email };
       },

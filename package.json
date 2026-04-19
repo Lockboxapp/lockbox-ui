@@ -19,6 +19,8 @@
     "next": "16.2.2",
     "next-auth": "4.24.12",
     "nodemailer": "7.0.10",
+    "posthog-js": "^1.200.0",
+    "posthog-node": "^4.8.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "recharts": "^2.15.3",

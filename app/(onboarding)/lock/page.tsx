@@ -7,6 +7,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { capture } from "@/lib/posthog";
 
 const LOCK_OPTIONS = [
   {
@@ -60,6 +61,14 @@ function LockPageInner() {
     } catch {
       // Non-blocking — still redirect to dashboard
     }
+
+    // Sprint 9 — mark onboarding complete (server-side timestamp + client event)
+    try {
+      await fetch("/api/onboarding/complete", { method: "POST" });
+    } catch {
+      // Non-blocking
+    }
+    capture("onboarding_completed", { intent });
 
     // If keyholder selected, redirect to keyholders page
     if (selected === "keyholder") {

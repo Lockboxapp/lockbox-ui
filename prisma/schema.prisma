@@ -88,6 +88,12 @@ model User {
 
   // Admin
   isAdmin Boolean @default(false)
+
+  // Sprint 9 — onboarding completion + account restriction
+  onboardingCompletedAt DateTime?
+  isRestricted          Boolean   @default(false)
+  restrictedAt          DateTime?
+  restrictedReason      String?
 }
 
 model Account {

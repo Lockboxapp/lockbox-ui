@@ -8,6 +8,7 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import ActivityChart, { ChartDataPoint, ChartRanges } from "@/components/admin/ActivityChart";
+import SupportTools from "@/components/admin/SupportTools";
 
 export const dynamic = "force-dynamic";
 
@@ -102,6 +103,9 @@ export default async function AdminPage() {
     waitlistRecent,
     userTotal,
     userRecent,
+    onboardingCompleted,
+    allUsersForTools,
+    allBoxesForTools,
     boxTotal,
     boxLocked,
     boxUnlockPending,
@@ -126,6 +130,21 @@ export default async function AdminPage() {
       orderBy: { createdAt: "desc" },
       take: 10,
       select: { name: true, email: true, createdAt: true },
+    }),
+    prisma.user.count({ where: { onboardingCompletedAt: { not: null } } }),
+    prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isRestricted: true,
+        restrictedReason: true,
+      },
+    }),
+    prisma.box.findMany({
+      where: { isClosed: false },
+      select: { id: true, name: true, balance: true, isWallet: true, isClosed: true, userId: true },
     }),
     prisma.box.count(),
     prisma.box.count({ where: { status: "LOCKED" } }),
@@ -230,8 +249,13 @@ export default async function AdminPage() {
           />
         </div>
 
-        {/* Row 3 — unlock breakdown */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        {/* Row 3 — unlock breakdown + onboarding */}
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          <StatCard
+            label="Onboarding Completed"
+            value={onboardingCompleted}
+            sub={`of ${userTotal} users`}
+          />
           <StatCard
             label="Unlock — Pending"
             value={unlockPending}
@@ -323,6 +347,19 @@ export default async function AdminPage() {
           </div>
 
         </div>
+
+        <SupportTools
+          users={allUsersForTools
+            .filter((u): u is typeof u & { email: string } => !!u.email)
+            .map((u) => ({
+              id: u.id,
+              email: u.email,
+              name: u.name,
+              isRestricted: u.isRestricted,
+              restrictedReason: u.restrictedReason,
+            }))}
+          allBoxes={allBoxesForTools}
+        />
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS, UNLOCK_STATUS } from "@/lib/types";
 import { sendUnlockRequestToKeyholder, sendTransferRequestToKeyholder } from "@/lib/email";
+import { captureServer } from "@/lib/posthog-server";
 
 export async function POST(req: NextRequest) {
   try {
@@ -289,6 +290,11 @@ export async function POST(req: NextRequest) {
     const { approvalToken: _, ...safeRequest } = unlockRequest;
     const keyholderName =
       activeRelationship?.profile.name ?? activeRelationship?.profile.email ?? null;
+
+    captureServer("unlock_requested", session.user.id, {
+      lockType: box.lockType,
+      requestType: isTransfer ? "TRANSFER" : "UNLOCK",
+    });
 
     return NextResponse.json({ ...safeRequest, keyholderName }, { status: 201 });
   } catch (error) {

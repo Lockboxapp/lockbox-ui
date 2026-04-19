@@ -13,6 +13,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { Home, Lock, MessageSquare, CreditCard, Menu, PiggyBank } from "lucide-react";
 import { useState } from "react";
+import { capture } from "@/lib/posthog";
 
 const tabs = [
   { key: "home", label: "Home", icon: Home, href: "/home" },
@@ -187,6 +188,7 @@ export default function ShellLayout({
                   key={item.label}
                   onClick={async () => {
                     if ((item as any).share) {
+                      capture("share_link_tapped");
                       const shareData = {
                         title: "LockBox",
                         text: "I'm using LockBox to protect my rent money. Try it:",

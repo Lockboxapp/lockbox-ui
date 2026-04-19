@@ -14,6 +14,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendKeyholderInvite } from "@/lib/email";
+import { captureServer } from "@/lib/posthog-server";
 
 // ── GET — list all keyholder relationships ──────────────────
 
@@ -171,6 +172,8 @@ export async function POST(req: NextRequest) {
         }),
       },
     });
+
+    captureServer("keyholder_invited", session.user.id);
 
     return NextResponse.json(
       { ok: true, relationshipId: relationship.id },

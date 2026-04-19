@@ -915,8 +915,7 @@ const bodyHtml = `
     <span class="logo-text">LockBox</span>
   </a>
   <div class="nav-cta">
-    <a href="/signin" class="nav-link">Sign in</a>
-    <a href="/welcome" class="btn btn-primary">Get started</a>
+    <!-- Sprint 9 — waitlist-only landing page; nav CTAs removed intentionally. -->
   </div>
 </nav>
 
@@ -934,6 +933,9 @@ const bodyHtml = `
     <input type="email" class="waitlist-input" placeholder="your@email.com" id="hero-email" />
     <button class="btn btn-primary" onclick="joinWaitlist('hero')">Join waitlist</button>
   </div>
+  <p style="color: var(--muted); font-size: 13px; margin-top: 10px;">
+    We'll let you know when you're in.
+  </p>
   <div class="waitlist-success" id="hero-success">
     <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" fill="none" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
     You're on the list.
@@ -1141,8 +1143,6 @@ const bodyHtml = `
     <span style="font-family:var(--serif);font-size:17px;font-weight:700;">LockBox</span>
   </a>
   <div class="footer-links">
-    <a href="/welcome">Get started</a>
-    <a href="/signin">Sign in</a>
     <a href="mailto:support@lockboxfinance.com">Support</a>
     <a href="https://x.com/lockboxfinance" target="_blank">Twitter</a>
     <a href="https://instagram.com/lockboxfinance" target="_blank">Instagram</a>
@@ -1182,7 +1182,7 @@ export default function LandingPage() {
           await fetch("/api/waitlist", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email }),
+            body: JSON.stringify({ email, source }),
           });
         } catch (_) {
           // swallow — success shown regardless
