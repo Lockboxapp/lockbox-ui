@@ -10,6 +10,143 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = "LockBox <noreply@lockboxfinance.com>"; // update with your domain
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
+// Sprint 10 — personal founder emails for the waitlist nurture sequence.
+// These are plain-text only, sent from Darian's address, and include an
+// unsubscribe footer. Not transactional system mail.
+const FROM_DARIAN = "Darian at LockBox <darian@lockboxfinance.com>";
+const PUBLIC_BASE_URL =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  process.env.NEXTAUTH_URL ??
+  "https://lockboxfinance.com";
+
+function unsubscribeFooter(entryId: string) {
+  const token = Buffer.from(entryId).toString("base64");
+  const url = `${PUBLIC_BASE_URL}/api/waitlist/unsubscribe?token=${encodeURIComponent(token)}`;
+  return `\n\n—\nUnsubscribe: ${url}`;
+}
+
+// ------------------------------------------------------------
+// Email 1 — Day 1 — Immediate on waitlist signup
+// ------------------------------------------------------------
+export async function sendWaitlistEmail1({
+  to,
+  entryId,
+}: {
+  to: string;
+  entryId: string;
+}) {
+  const body = `Hey,
+
+You're on the LockBox waitlist. I'll reach out personally when your spot opens up.
+
+While you wait — a quick word on why this exists.
+
+I kept spending money that was supposed to go to bills. Not because I didn't know better. I knew exactly what I was doing. The problem wasn't information. The problem was access. The money was there, the bill wasn't due yet, and in that gap — I made bad decisions.
+
+Every budgeting app I tried gave me the same thing: categories, charts, gentle reminders. None of them made the money actually harder to reach. And that's the only thing that would have helped me.
+
+So I built LockBox.
+
+You lock your money into a box. You set a date. And until that date, the money is genuinely hard to get to — not just a screen tap away. If you want out early, you have to explain yourself. And if you added a keyholder, someone you trust has to approve it.
+
+That's the whole product. Real friction. Real money. Real accountability.
+
+I'll be in touch.
+
+Darian
+Founder, LockBox
+lockboxfinance.com${unsubscribeFooter(entryId)}`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "You're on the list.",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
+// Email 2 — Day 3 — The willpower problem
+// ------------------------------------------------------------
+export async function sendWaitlistEmail2({
+  to,
+  entryId,
+}: {
+  to: string;
+  entryId: string;
+}) {
+  const body = `Hey,
+
+Most financial advice assumes the problem is knowledge.
+
+If you just knew your numbers. If you just tracked your spending. If you just made a budget.
+
+But most people who overspend know exactly what they're doing. They're not confused. They're not unaware. They're just in a moment where the money is available and the consequence feels far away.
+
+Willpower is a terrible financial strategy. It works sometimes. It fails when it matters most.
+
+The research on this is pretty clear: when you reduce access, behavior changes. Not because people become more disciplined — but because the environment does the work instead of the person.
+
+That's what LockBox is built on. Not motivation. Not reminders. Just a real barrier between you and money you've already decided to protect.
+
+You put your rent money in a box. You set the date. The box closes. Now your environment is doing the work — not you.
+
+We're almost ready. I'll let you know when your spot opens.
+
+Darian
+Founder, LockBox
+lockboxfinance.com${unsubscribeFooter(entryId)}`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "The willpower problem",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
+// Email 3 — Day 7 — How the keyholder system works
+// ------------------------------------------------------------
+export async function sendWaitlistEmail3({
+  to,
+  entryId,
+}: {
+  to: string;
+  entryId: string;
+}) {
+  const body = `Hey,
+
+One of the features people ask about most is the keyholder.
+
+Here's how it works.
+
+When you lock a box, you can optionally assign someone you trust — a partner, a parent, a close friend — as your keyholder. If you try to access the money early, they get notified. They can approve it or deny it.
+
+That's it. No shared accounts. No access to your money. They just hold the key.
+
+The reason this works isn't because your keyholder is a gatekeeper. It's because you chose them. You told someone "I'm trying to protect this money" — and now that's real. The moment you try to unlock early, you have to face that.
+
+Most of the time, people don't even complete the request. The act of writing out why you need the money early is enough to make you reconsider.
+
+That's the behavioral mechanic. Friction creates pause. Pause creates better decisions.
+
+You don't have to use a keyholder. But if you've ever blown money you promised yourself you wouldn't touch — it's worth thinking about.
+
+We're getting close. Your spot is coming.
+
+Darian
+Founder, LockBox
+lockboxfinance.com${unsubscribeFooter(entryId)}`;
+
+  await resend.emails.send({
+    from: FROM_DARIAN,
+    to,
+    subject: "How the keyholder system works",
+    text: body,
+  });
+}
+
 // ------------------------------------------------------------
 // Keyholder invite email
 // Sent when a box owner invites someone to be their keyholder

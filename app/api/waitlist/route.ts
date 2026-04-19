@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
 import { getServerPosthog } from "@/lib/posthog-server";
+import { sendWaitlistEmail1 } from "@/lib/email";
 
 const schema = z.object({
   email: z.string().email(),
@@ -21,11 +22,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    await prisma.waitlistEntry.upsert({
+    const entry = await prisma.waitlistEntry.upsert({
       where: { email: parsed.data.email },
       update: {},
       create: { email: parsed.data.email },
     });
+
+    // Sprint 10 — send Email 1 once. Skip if already sent or the user
+    // has unsubscribed. Failure to send must not break signup (swallow).
+    if (!entry.email1SentAt && !entry.unsubscribed) {
+      try {
+        await sendWaitlistEmail1({ to: entry.email, entryId: entry.id });
+        await prisma.waitlistEntry.update({
+          where: { id: entry.id },
+          data: { email1SentAt: new Date() },
+        });
+      } catch (err) {
+        console.error("[waitlist] email1 send failed:", err);
+      }
+    }
 
     const ph = getServerPosthog();
     ph.capture({

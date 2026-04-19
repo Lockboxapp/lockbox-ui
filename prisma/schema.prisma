@@ -401,9 +401,14 @@ model AuditEvent {
 
 // Waitlist email captures
 model WaitlistEntry {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  createdAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  email        String    @unique
+  createdAt    DateTime  @default(now())
+  // Sprint 10 — welcome email sequence tracking
+  email1SentAt DateTime?
+  email2SentAt DateTime?
+  email3SentAt DateTime?
+  unsubscribed Boolean   @default(false)
 
   @@index([email])
 }
