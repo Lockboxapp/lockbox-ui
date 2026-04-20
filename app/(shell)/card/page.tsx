@@ -7,7 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import AdminSimulateSpend from "./AdminSimulateSpend";
+import CardSimulate from "./CardSimulate";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export default async function CardPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { name: true, isAdmin: true },
+    select: { name: true },
   });
 
   // Lazy-backfill wallet if somehow missing
@@ -77,6 +77,18 @@ export default async function CardPage() {
         </div>
       </div>
 
+      {/* Sprint 12 — Wallet-low warning on the Card tab (mirrors Banker nudge). */}
+      {balance < 2000 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <div className="text-sm text-amber-900 font-medium">
+            Your Wallet is running low.
+          </div>
+          <div className="text-xs text-amber-800 mt-0.5">
+            Move funds from a box if you need more.
+          </div>
+        </div>
+      )}
+
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
         <div className="text-xs text-amber-800 font-medium">Your card is on the way.</div>
         <div className="text-xs text-amber-700 mt-0.5">Once active, it will spend from your Wallet.</div>
@@ -90,7 +102,7 @@ export default async function CardPage() {
         </p>
       </div>
 
-      {user?.isAdmin && <AdminSimulateSpend walletBalance={balance} />}
+      <CardSimulate walletBalance={balance} />
     </div>
   );
 }
