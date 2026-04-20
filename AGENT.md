@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 19, 2026 — Sprint 11 complete (keyholder lifecycle).
+# Last updated: April 20, 2026 — Sprint 12 complete (card simulation + decline logic).
 # ============================================================
 
 ---
@@ -279,7 +279,13 @@ Convert to dollars only at the display layer. Never store floats for money.
                                                    sends Day 3 / Day 7 emails
 
 ### Card
-  POST /api/card/simulate         <- simulate card spend (isAdmin only, dev tool)
+  POST /api/card/simulate         <- simulate card spend from Wallet (all users)
+                                     • approved: $transaction debits Wallet +
+                                       WITHDRAW Transaction ("Card purchase — {merchant}")
+                                     • declined (wallet<amt): NO money moves,
+                                       NO Transaction; AuditEvent
+                                       { action: "CARD_DECLINED", metadata:
+                                         { merchant, amountCents, walletBalance } }
 
 ---
 
@@ -473,7 +479,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 11, April 19, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 12, April 20, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -513,6 +519,11 @@ BUILT AND DEPLOYED:
     with Assign / Switch to Flexible CTAs; banker nudge on home
   Keyholder welcome email on acceptance + scope update email when existing
     keyholder gets new boxes; opt-out link in all keyholder emails
+  Card simulation + decline logic — merchant presets, amount input, all-user
+    Charge card action; approved purchases write WITHDRAW Transaction;
+    declines are AuditEvent-only (CARD_DECLINED, metadata with merchant +
+    attempted cents + wallet balance), no money moves, no Transaction, no
+    activity-feed entry. Wallet-low warning on Card tab when balance < $20.
 
 ---
 
@@ -652,6 +663,19 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 12 — Card Simulation + Decline Logic (Apr 20, commit 1aa56eb)
+  POST /api/card/simulate: all users (admin gate removed). Accepts
+    { amountInDollars, merchant }. Approved path uses prisma.$transaction()
+    to debit Wallet and create a WITHDRAW Transaction with description
+    "Card purchase — {merchant}". Declined path writes AuditEvent only
+    (action: CARD_DECLINED, metadata { merchant, amountCents, walletBalance })
+    — per board override, no DECLINED enum, no migration, clean ledger.
+  app/(shell)/card/CardSimulate.tsx: merchant preset dropdown (Grocery,
+    Gas, Restaurant, Pharmacy, Online, Custom free-text), amount input,
+    inline approved/declined result cards, router.refresh() on result.
+  Card tab: admin gate removed; Wallet-low amber warning when balance < $20;
+    old AdminSimulateSpend.tsx deleted.
 
 Sprint 11 — Keyholder Lifecycle (Apr 19, commit a159310)
   KeyholderRelationship adds revokedBy String? ('KEYHOLDER' | 'OWNER').
