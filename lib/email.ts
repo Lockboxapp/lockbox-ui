@@ -574,12 +574,11 @@ ${boxListText(boxes)}
 
 If someone sends you an approval request, you'll get a separate email with the details and a link to respond.
 
-Darian
-Founder, LockBox
+— LockBox
 lockboxfinance.com${keyholderOptOutFooter(relationshipId)}`;
 
   await resend.emails.send({
-    from: FROM_DARIAN,
+    from: FROM,
     to,
     subject: "You're now a keyholder on LockBox",
     text: body,
@@ -620,12 +619,11 @@ ${addedList} ${newBoxes.length === 1 ? "was" : "were"} added to your access.
 
 If you have any questions, you can reply to this email.
 
-Darian
-Founder, LockBox
+— LockBox
 lockboxfinance.com${keyholderOptOutFooter(relationshipId)}`;
 
   await resend.emails.send({
-    from: FROM_DARIAN,
+    from: FROM,
     to,
     subject: "Your keyholder access has been updated",
     text: body,
@@ -662,12 +660,11 @@ Any of these boxes that are marked Keyholder will need a new keyholder assigned 
 
 You can manage this in Settings → Keyholders.
 
-Darian
-Founder, LockBox
+— LockBox
 lockboxfinance.com`;
 
   await resend.emails.send({
-    from: FROM_DARIAN,
+    from: FROM,
     to,
     subject: "Your keyholder stepped down",
     text: body,
@@ -704,12 +701,11 @@ You will no longer receive approval requests for these boxes. No further action 
 
 If you have questions, you can reply to this email.
 
-Darian
-Founder, LockBox
+— LockBox
 lockboxfinance.com`;
 
   await resend.emails.send({
-    from: FROM_DARIAN,
+    from: FROM,
     to,
     subject: "You've been removed as a keyholder",
     text: body,
