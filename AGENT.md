@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 21, 2026 — Sprint 14 complete (transfer in, protected display, lock warning, user acceptance, banker carousel).
+# Last updated: April 21, 2026 — Sprint 15 complete (CARD_SPEND, contrast, tappable blockers, transactions page, change protection, per-box keyholder scope).
 # ============================================================
 
 ---
@@ -237,13 +237,19 @@ Convert to dollars only at the display layer. Never store floats for money.
   GET    /api/boxes               <- all boxes for user (lazy-backfills Wallet)
   POST   /api/boxes               <- create box (HARD/KEYHOLDER auto-lock)
   PATCH  /api/boxes/:id           <- multi-action: lock | unlock | reopen |
-                                     switchToFlexible | general update
+                                     switchToFlexible | changeProtectionType |
+                                     general update
   DELETE /api/boxes/:id           <- close box, returns blockers if not eligible
 
 ### Box Money Movement
   POST /api/boxes/:id/deposit     <- external deposit into box
   POST /api/boxes/:id/withdraw    <- withdraw (respects lockType + lockedAmount)
   POST /api/boxes/transfer        <- internal transfer between boxes
+
+### Transactions
+  GET /api/transactions/list     <- paginated + filterable ledger (Sprint 15)
+                                    filters: boxId, type (deposit|withdraw|transfer|card_spend|all),
+                                    range (this_week|this_month|last_3_months|all), offset, limit (max 100)
 
 ### Unlock / Transfer Requests
   POST /api/unlock-requests                          <- create UNLOCK or TRANSFER request
@@ -256,16 +262,14 @@ Convert to dollars only at the display layer. Never store floats for money.
   POST /api/unlock-requests/[token]/cancel-by-user   <- owner cancels the above, funds stay
 
 ### Keyholders
-  GET    /api/keyholders                   <- all relationships for user
-  POST   /api/keyholders                   <- invite keyholder (sends Resend email);
-                                              also detects existing ACTIVE SELECTED
-                                              relationship + new boxIds and sends
-                                              scope-update email instead of new invite
-  PATCH  /api/keyholders/[token]           <- keyholder accepts invite (no auth),
-                                              sends welcome email on success
-  DELETE /api/keyholders/manage/[id]       <- owner removes keyholder (Sprint 11);
-                                              sets status=REVOKED, revokedBy=OWNER,
-                                              notifies keyholder by email
+  GET    /api/keyholders                                       <- all relationships for user
+  POST   /api/keyholders                                       <- invite or scope-update
+  PATCH  /api/keyholders/[token]                               <- keyholder accepts
+  DELETE /api/keyholders/manage/[id]                           <- owner removes keyholder
+  DELETE /api/keyholders/[relationshipId]/boxes/[boxId]        <- Sprint 15: remove a single
+                                                                  box from SELECTED scope.
+                                                                  Revokes whole relationship
+                                                                  if it was the last box.
   GET    /api/keyholder/optout?token=      <- returns opt-out context (no auth)
   POST   /api/keyholder/optout             <- keyholder steps down via opt-out page
                                               (Sprint 11); no auth; status=REVOKED,
@@ -487,7 +491,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 14, April 21, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 15, April 21, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -565,6 +569,24 @@ BUILT AND DEPLOYED:
     on $transaction error). Cancel sets CANCELLED_BY_USER, funds stay.
   Banker carousel — priority-ordered array of messages, swipeable on mobile,
     dot indicators + chevrons for multi-card, single-card visual unchanged.
+  CARD_SPEND transaction type — distinct from WITHDRAW; home + /transactions
+    show card icon + merchant name.
+  Text contrast pass — VaultsScreen heading and the four vault modal titles
+    (Transfer Funds / New Safe Deposit Box / Add Funds / Lock Safe Deposit Box)
+    + Settings page heading now text-gray-900. Supporting text stays muted.
+  Tappable blocker CTAs in Close Box flow — locked_amount → transfer modal;
+    status_locked → unlock request flow; active_keyholder → /keyholders.
+  /transactions page — filters (box / type / range), 25-per-page Load more,
+    typed icons + colors, CARD_SPEND shows merchant as subtitle. Home Recent
+    Activity gains "View all →" link.
+  Change protection type — three-dot menu → Change protection type on
+    non-Wallet boxes; two-step modal (select + confirm with direction-specific
+    warning); PATCH action=changeProtectionType auto-locks on upgrade, leaves
+    state intact on downgrade; audit PROTECTION_TYPE_CHANGED. Settings drawer
+    gains "My boxes" route shortcut.
+  Per-box keyholder scope editing — Manage modal shows SELECTED-scope boxes
+    with × remove each; last-box removal shows "Remove anyway" confirmation
+    and cascades to full relationship revoke via DELETE route.
 
 ---
 
@@ -704,6 +726,31 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 15 — UX Polish + Transactions + Protection Type (Apr 21, commit 6d3c2a6)
+  CARD_SPEND added to TX constants (Transaction.type is String column; no
+    DB migration required). /api/card/simulate writes CARD_SPEND on approved
+    purchases. Home recent activity + /transactions show card icon + merchant.
+  Text contrast pass on VaultsScreen heading, all four vault modal titles,
+    and Settings page heading.
+  CloseBoxFlow blocker rows are now tappable buttons that route to the right
+    flow (transfer / unlock / keyholders) with chevrons; non-actionable
+    blockers remain static amber boxes.
+  New /transactions page — Suspense + TransactionsList client component +
+    /api/transactions/list endpoint. Filters: boxId, type bucket, date
+    range. Offset-based Load more (25 per page). Home Recent Activity
+    gains "View all →" link.
+  PATCH /api/boxes/:id gains action=changeProtectionType. Upgrades to HARD
+    or KEYHOLDER auto-lock (status=LOCKED, lockedAmount=balance); downgrades
+    to SOFT preserve existing lock state so the SOFT self-unlock flow handles
+    release. Writes PROTECTION_TYPE_CHANGED audit. Rejects Wallet, rejects
+    same-type. UI: three-dot menu "Change protection type" + two-step modal
+    (select → direction-aware warning). Settings drawer gains "My boxes"
+    route shortcut.
+  DELETE /api/keyholders/[relationshipId]/boxes/[boxId] — remove one box
+    from SELECTED scope. Last-box removal cascades to whole-relationship
+    revoke with audits. Manage modal renders per-box × buttons with
+    inline "Remove anyway" confirmation for the last-box case.
 
 Sprint 14 — Transfer In + Protected Display + Lock Warning + User Acceptance + Banker Carousel (Apr 21, commit 0e5ad45)
   Bug 1: transfer route documented — destination lockType never blocks
