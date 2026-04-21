@@ -24,6 +24,9 @@ type Vault = {
   closedAt?: string | null;
   // Sprint 11 — derived state: KEYHOLDER box with no active keyholder covering it
   missingKeyholder?: boolean;
+  // Sprint 14 — HARD/KEYHOLDER boxes show a single "Protected" figure
+  isFullyProtected?: boolean;
+  protectedAmount?: number;
 };
 
 type Props = {
@@ -230,8 +233,16 @@ export default function VaultsScreen({
                     </div>
                   </div>
                   <div className="flex items-start gap-1">
-                    <div className="text-right text-sm text-gray-500">
-                      Locked: {currency(v.locked)}
+                    <div className="text-right text-sm">
+                      {v.isFullyProtected ? (
+                        <span className="text-amber-700 font-semibold">
+                          Protected: {currency(v.protectedAmount ?? v.saved)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-500">
+                          Locked: {currency(v.locked)}
+                        </span>
+                      )}
                     </div>
                     {(onCloseBox || onRenameBox || onEditDueDate) && (
                       <div className="relative">
@@ -332,10 +343,18 @@ export default function VaultsScreen({
                 {/* Actions */}
                 <div className="mt-3 flex items-center justify-between">
                   <div className="text-sm text-gray-600">
-                    Saved:{" "}
-                    <span className="font-medium text-gray-900">
-                      {currency(v.saved)}
-                    </span>
+                    {v.isFullyProtected ? (
+                      <span className="text-xs text-amber-700">
+                        All funds are under enforcement.
+                      </span>
+                    ) : (
+                      <>
+                        Saved:{" "}
+                        <span className="font-medium text-gray-900">
+                          {currency(v.saved)}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">

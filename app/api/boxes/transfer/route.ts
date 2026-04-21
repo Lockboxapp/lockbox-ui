@@ -2,10 +2,16 @@
 // app/api/boxes/transfer/route.ts
 // POST /api/boxes/transfer
 // ============================================================
-// LOCK ENFORCEMENT — server-side, cannot be bypassed:
-//   HARD      → always blocked; must unlock first
-//   KEYHOLDER → always blocked; keyholder must approve
-//   SOFT      → blocked when status is LOCKED; must self-unlock first
+// LOCK ENFORCEMENT — server-side, cannot be bypassed.
+// Applies to the SOURCE box ONLY. Transfer IN is always allowed
+// regardless of destination lockType (Sprint 14 Bug 1 board rule).
+// Destination lockType determines what happens to funds after
+// they arrive — not whether the transfer is allowed.
+//
+// Source rules:
+//   HARD      → blocked when status = LOCKED; must unlock first
+//   KEYHOLDER → blocked when status = LOCKED; keyholder must approve
+//   SOFT      → blocked when status = LOCKED; must self-unlock first
 //   CREATED, FUNDING, UNLOCKED → allowed for any lockType
 // ============================================================
 

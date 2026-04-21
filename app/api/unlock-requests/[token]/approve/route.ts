@@ -127,6 +127,78 @@ export async function POST(
         return NextResponse.json({ error: "Locked amount insufficient for transfer" }, { status: 400 });
       }
 
+      // Sprint 14 — if the destination is HARD or KEYHOLDER, defer execution.
+      // The user must explicitly accept because the funds will be locked on arrival.
+      const destNeedsAcceptance =
+        destBox.lockType === "HARD" || destBox.lockType === "KEYHOLDER";
+
+      if (destNeedsAcceptance) {
+        await prisma.unlockRequest.update({
+          where: { id: unlockRequest.id },
+          data: {
+            status: UNLOCK_STATUS.PENDING_USER_ACCEPTANCE,
+          },
+        });
+        await prisma.auditEvent.create({
+          data: {
+            actor: "KEYHOLDER",
+            actorId: sessionCheck.profileId ?? undefined,
+            action: "REQUEST_APPROVED_PENDING_USER_ACCEPTANCE",
+            targetId: unlockRequest.id,
+            metadata: JSON.stringify({
+              boxId: unlockRequest.boxId,
+              destinationBoxId: destBox.id,
+              destinationLockType: destBox.lockType,
+              keyholderEmail: sessionCheck.email,
+            }),
+          },
+        });
+
+        // Notify the owner that their transfer is awaiting their acceptance.
+        try {
+          const owner = await prisma.user.findUnique({
+            where: { id: unlockRequest.box.userId },
+            select: { email: true, name: true },
+          });
+          if (owner?.email) {
+            const { sendTransferAwaitingAcceptance } = await import("@/lib/email");
+            await sendTransferAwaitingAcceptance({
+              to: owner.email,
+              ownerName: owner.name,
+              sourceBoxName: unlockRequest.box.name,
+              destinationBoxName: destBox.name,
+              destinationLockType: destBox.lockType,
+              amountDollars: amt / 100,
+              keyholderDisplay: activeRelationship.profile.name ?? activeRelationship.profile.email,
+            });
+          }
+        } catch (emailErr) {
+          console.error(
+            "[approve/TRANSFER] awaiting-acceptance email errored:",
+            emailErr,
+          );
+        }
+
+        const ph = getServerPosthog();
+        ph.capture({
+          distinctId: unlockRequest.box.userId,
+          event: "transfer_pending_user_acceptance",
+          properties: {
+            box_id: unlockRequest.boxId,
+            destination_box_id: destBox.id,
+          },
+        });
+        await ph.shutdown();
+
+        return NextResponse.json({
+          approved: true,
+          pendingUserAcceptance: true,
+          boxName: unlockRequest.box.name,
+          destinationBoxName: destBox.name,
+        });
+      }
+
+      // Destination is SOFT or Wallet — auto-execute (existing Sprint 6/13 behavior).
       try {
         await prisma.$transaction([
           // Move funds: debit source balance+lockedAmount, credit destination balance

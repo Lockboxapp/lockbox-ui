@@ -11,6 +11,8 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
+import BankerCarousel from "./BankerCarousel";
+import PendingAcceptanceRow from "./PendingAcceptanceRow";
 
 export const dynamic = "force-dynamic";
 
@@ -82,11 +84,17 @@ export default async function HomePage() {
         },
       }),
       prisma.unlockRequest.findMany({
-        where: { status: "PENDING", box: { userId } },
+        where: {
+          status: { in: ["PENDING", "PENDING_USER_ACCEPTANCE"] },
+          box: { userId },
+        },
         orderBy: { requestedAt: "desc" },
         select: {
           id: true,
+          status: true,
           requestType: true,
+          transferAmount: true,
+          destinationBoxId: true,
           box: { select: { id: true, name: true } },
         },
       }),
@@ -220,10 +228,43 @@ export default async function HomePage() {
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
-  // ── 2b. Banker Insight (Sprint 3 Fix 2: aligned with Priority criteria) ──
-  // Must only reference boxes that qualify for Priority. Never invent warnings.
+  // ── Sprint 14 — resolve pending user-acceptance transfers early.
+  // Needed by both the Banker carousel (top message) and Today's Actions
+  // (top row), so compute before both.
+  const pendingAcceptance = pendingUnlockRequests.filter(
+    (r) => r.status === "PENDING_USER_ACCEPTANCE",
+  );
+  const pendingUnlocks = pendingUnlockRequests.filter(
+    (r) => r.status === "PENDING" && r.requestType !== "TRANSFER",
+  );
+  const pendingTransfers = pendingUnlockRequests.filter(
+    (r) => r.status === "PENDING" && r.requestType === "TRANSFER",
+  );
+  const acceptanceDestIds = pendingAcceptance
+    .map((r) => r.destinationBoxId)
+    .filter((x): x is string => !!x);
+  const acceptanceDestBoxes = acceptanceDestIds.length
+    ? await prisma.box.findMany({
+        where: { id: { in: acceptanceDestIds } },
+        select: { id: true, name: true, lockType: true },
+      })
+    : [];
+  const destLookup = new Map(acceptanceDestBoxes.map((b) => [b.id, b]));
+  const acceptanceCards = pendingAcceptance.map((r) => {
+    const dest = r.destinationBoxId ? destLookup.get(r.destinationBoxId) : null;
+    return {
+      id: r.id,
+      sourceBoxName: r.box.name,
+      destinationBoxName: dest?.name ?? "another box",
+      destinationLockType: dest?.lockType ?? "HARD",
+      amountDollars: (r.transferAmount ?? 0) / 100,
+    };
+  });
+
+  // ── 2b. Banker Insight (Sprint 14 — now a priority-ordered carousel) ──
+  // Each qualifying message is pushed in priority order. The client renders
+  // the first by default and lets the user swipe through the rest.
   type InsightType = "unlock_pending" | "behind_target" | "positive";
-  let bankerInsight: { type: InsightType; message: string };
 
   const unlockPendingQualifier = priorityBoxes.find((b) => b.status === "UNLOCK_PENDING");
   // Sprint 13 — overdue branch (between empty-locked and unlock-pending in ladder)
@@ -285,57 +326,89 @@ export default async function HomePage() {
   // Sprint 4: Wallet-low nudge — fires when Wallet < $20 and there's money protected in boxes
   const walletLow = walletBalance < 2000 && protectedInBoxes > 0;
 
+  // Sprint 14 — Banker is now a carousel of messages ordered by priority.
+  // Each entry in order:
+  //   1. PENDING_USER_ACCEPTANCE transfer awaiting user action
+  //   2. Empty locked box
+  //   3. Overdue target
+  //   4. Unlock pending
+  //   5. Behind target with pace
+  //   6. Missing keyholder
+  //   7. Low Wallet
+  //   8. 30-day discipline streak
+  //   9. Default fallback
+  const bankerMessages: { type: InsightType; message: string }[] = [];
+
+  if (acceptanceCards.length > 0) {
+    const first = acceptanceCards[0];
+    bankerMessages.push({
+      type: "behind_target",
+      message: `Your keyholder approved your transfer of ${fmt(first.amountDollars * 100)} from ${first.sourceBoxName}. Tap Today's Actions to accept or cancel.`,
+    });
+  }
   if (emptyLockedBox) {
-    bankerInsight = {
+    bankerMessages.push({
       type: "behind_target",
       message: `You created ${emptyLockedBox.name} to lock away some money. Let's start doing that.`,
-    };
-  } else if (overdueQualifier) {
-    // Sprint 13 — overdue branch sits above unlock_pending per spec
+    });
+  }
+  if (overdueQualifier) {
     const dateStr = overdueQualifier.lockUntil
       ? new Date(overdueQualifier.lockUntil).toLocaleDateString("en-US", {
           month: "short",
           day: "numeric",
         })
       : "earlier";
-    bankerInsight = {
+    bankerMessages.push({
       type: "behind_target",
       message: `Your ${overdueQualifier.name} target date was ${dateStr}. Do you want to extend it or start withdrawing?`,
-    };
-  } else if (missingKeyholderBox) {
-    bankerInsight = {
-      type: "behind_target",
-      message: `${missingKeyholderBox.name} has no active keyholder. Assign one to restore protection.`,
-    };
-  } else if (unlockPendingQualifier) {
-    bankerInsight = {
+    });
+  }
+  if (unlockPendingQualifier) {
+    bankerMessages.push({
       type: "unlock_pending",
       message: "You have a pending unlock request. Think carefully before proceeding.",
-    };
-  } else if (walletLow) {
-    bankerInsight = {
-      type: "behind_target",
-      message: `Your Wallet is running low. You have ${fmt(walletBalance)} left. You also have money protected in boxes — only move what you need.`,
-    };
-  } else if (behindQualifier) {
-    // Sprint 13 — use pace calculation if inputs qualify, fall back to generic copy.
+    });
+  }
+  if (behindQualifier) {
     const paceMsg = buildPaceMessage(behindQualifier);
-    bankerInsight = {
+    bankerMessages.push({
       type: "behind_target",
       message:
         paceMsg ??
         `Your ${behindQualifier.name} is behind. You may not hit your target in time.`,
-    };
-  } else {
-    // 30-day discipline check: active 30+ days with no unlock requests
-    const accountAgeDays = dbUser?.createdAt
-      ? Math.floor((now.getTime() - new Date(dbUser.createdAt).getTime()) / (1000 * 60 * 60 * 24))
-      : 0;
-    if (accountAgeDays >= 30 && !lastUnlockAttempt) {
-      bankerInsight = { type: "positive", message: "30 days of discipline. Keep it going." };
-    } else {
-      bankerInsight = { type: "positive", message: "You are on track. Stay consistent." };
-    }
+    });
+  }
+  if (missingKeyholderBox) {
+    bankerMessages.push({
+      type: "behind_target",
+      message: `${missingKeyholderBox.name} has no active keyholder. Assign one to restore protection.`,
+    });
+  }
+  if (walletLow) {
+    bankerMessages.push({
+      type: "behind_target",
+      message: `Your Wallet is running low. You have ${fmt(walletBalance)} left. You also have money protected in boxes — only move what you need.`,
+    });
+  }
+  const accountAgeDays = dbUser?.createdAt
+    ? Math.floor(
+        (now.getTime() - new Date(dbUser.createdAt).getTime()) /
+          (1000 * 60 * 60 * 24),
+      )
+    : 0;
+  if (accountAgeDays >= 30 && !lastUnlockAttempt && bankerMessages.length === 0) {
+    bankerMessages.push({
+      type: "positive",
+      message: "30 days of discipline. Keep it going.",
+    });
+  }
+  // Always include at least one card — default fallback last.
+  if (bankerMessages.length === 0) {
+    bankerMessages.push({
+      type: "positive",
+      message: "You are on track. Stay consistent.",
+    });
   }
 
   // ── 4. Today's Actions (Sprint 2 Fix 5: tightened logic; Sprint 13: +transfer +overdue) ──
@@ -351,14 +424,7 @@ export default async function HomePage() {
     href: string;
   }> = [];
 
-  // Sprint 13 — split pending requests by type so transfer-in-flight is visible.
-  const pendingUnlocks = pendingUnlockRequests.filter(
-    (r) => r.requestType !== "TRANSFER",
-  );
-  const pendingTransfers = pendingUnlockRequests.filter(
-    (r) => r.requestType === "TRANSFER",
-  );
-
+  // Sprint 14 — pendingAcceptance/Unlocks/Transfers were computed earlier.
   if (pendingUnlocks.length > 0) {
     const count = pendingUnlocks.length;
     todaysActions.push({
@@ -377,6 +443,8 @@ export default async function HomePage() {
       href: `/vaults?box=${r.box.id}`,
     });
   }
+
+  // Sprint 14 — acceptanceCards were computed earlier, above the Banker block.
 
   // Sprint 13 — overdue boxes with a target amount below goal get a clear action.
   const overdueBoxes = boxes.filter(
@@ -477,38 +545,8 @@ export default async function HomePage() {
         )}
       </div>
 
-      {/* ── 3. Banker Insight (Fix 7: tappable) ── */}
-      <Link
-        href="/banker"
-        className={`block rounded-2xl p-4 border cursor-pointer hover:shadow-sm transition-shadow ${
-          bankerInsight.type === "unlock_pending"
-            ? "bg-amber-50 border-amber-200"
-            : bankerInsight.type === "behind_target"
-            ? "bg-rose-50 border-rose-200"
-            : "bg-emerald-50 border-emerald-200"
-        }`}
-      >
-        <div className="flex items-start gap-3">
-          <span className="text-base mt-0.5 shrink-0">
-            {bankerInsight.type === "unlock_pending"
-              ? "⏳"
-              : bankerInsight.type === "behind_target"
-              ? "📉"
-              : "✓"}
-          </span>
-          <div className="flex-1">
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
-              The Banker
-            </div>
-            <div className="text-sm font-medium text-gray-800 leading-snug">
-              {bankerInsight.message}
-            </div>
-            <div className="text-xs text-gray-500 mt-2 font-medium">
-              Chat with The Banker ›
-            </div>
-          </div>
-        </div>
-      </Link>
+      {/* ── 3. Banker Insight (Sprint 14 — carousel) ── */}
+      <BankerCarousel messages={bankerMessages} />
 
       {/* ── 4. Priority Boxes (Fix 4: tightened + empty state; Fix 6: deep link) ── */}
       <div>
@@ -605,13 +643,17 @@ export default async function HomePage() {
         <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
           {"Today's Actions"}
         </div>
-        {todaysActions.length === 0 ? (
+        {todaysActions.length === 0 && acceptanceCards.length === 0 ? (
           <div className="bg-white border border-gray-100 rounded-2xl px-4 py-5 text-center shadow-sm">
             <div className="text-sm text-gray-600 font-medium">{"You're all caught up. Stay consistent."}</div>
             <div className="text-xs text-gray-400 italic mt-1">— The Banker</div>
           </div>
         ) : (
           <div className="space-y-2">
+            {/* Sprint 14 — PENDING_USER_ACCEPTANCE rows go first */}
+            {acceptanceCards.map((c) => (
+              <PendingAcceptanceRow key={c.id} card={c} />
+            ))}
             {todaysActions.map((action, i) => (
               <Link
                 key={i}

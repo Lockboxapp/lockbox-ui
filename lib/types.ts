@@ -28,9 +28,15 @@ export const BOX_STATUS = {
 export type BoxStatus = (typeof BOX_STATUS)[keyof typeof BOX_STATUS];
 
 // Unlock request status
+// Sprint 14 — two new intermediate/terminal states for keyholder-approved
+// transfers landing in HARD/KEYHOLDER destinations (user must accept) and
+// user-side cancellation after keyholder approval.
 export const UNLOCK_STATUS = {
   PENDING: "PENDING",
   APPROVED: "APPROVED",
   DENIED: "DENIED",
+  FAILED: "FAILED",
+  PENDING_USER_ACCEPTANCE: "PENDING_USER_ACCEPTANCE",
+  CANCELLED_BY_USER: "CANCELLED_BY_USER",
 } as const;
 export type UnlockStatus = (typeof UNLOCK_STATUS)[keyof typeof UNLOCK_STATUS];

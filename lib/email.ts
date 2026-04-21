@@ -605,6 +605,57 @@ lockboxfinance.com`;
 }
 
 // ============================================================
+// Sprint 14 — Transfer awaiting user acceptance (HARD/KEYHOLDER destination)
+// ============================================================
+// When a keyholder approves a TRANSFER into a HARD or KEYHOLDER box, the
+// funds do not move automatically — the user must accept because the
+// money will be locked on arrival. This email surfaces the acceptance
+// prompt outside the app.
+
+export async function sendTransferAwaitingAcceptance({
+  to,
+  ownerName,
+  sourceBoxName,
+  destinationBoxName,
+  destinationLockType,
+  amountDollars,
+  keyholderDisplay,
+}: {
+  to: string;
+  ownerName?: string | null;
+  sourceBoxName: string;
+  destinationBoxName: string;
+  destinationLockType: string; // "HARD" | "KEYHOLDER"
+  amountDollars: number;
+  keyholderDisplay: string;
+}) {
+  const first = ownerName?.split(" ")[0] ?? "there";
+  const amtStr = `$${amountDollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const destKind =
+    destinationLockType === "HARD" ? "fully locked" : "keyholder-protected";
+
+  const text = `Hey ${first},
+
+${keyholderDisplay} approved your transfer of ${amtStr} from ${sourceBoxName} to ${destinationBoxName}.
+
+We haven't moved the money yet. Because ${destinationBoxName} is ${destKind}, these funds will be locked as soon as they arrive — so we want you to confirm before the transfer executes.
+
+Open LockBox and look at Today's Actions on your home screen. You'll see "Your keyholder approved your transfer — tap to review." Tap it to accept or cancel.
+
+If you cancel, the money stays in ${sourceBoxName}. No pressure — this is your choice.
+
+— LockBox
+lockboxfinance.com`;
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: "Your transfer was approved — accept to move the funds",
+    text,
+  });
+}
+
+// ============================================================
 // Sprint 11 — Keyholder Lifecycle emails (plain text)
 // ============================================================
 

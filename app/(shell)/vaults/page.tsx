@@ -34,12 +34,19 @@ function toVaultShape(box: Box) {
       )
     : null;
   const isOverdue = daysRemaining !== null && daysRemaining < 0;
+  // Sprint 14 — HARD and KEYHOLDER boxes display a single "Protected" figure
+  // instead of Saved/Locked split. Wallet is never fully protected.
+  const isFullyProtected =
+    !box.isWallet &&
+    (box.lockType === "HARD" || box.lockType === "KEYHOLDER");
   return {
     id: box.id,
     name: box.name,
     target: box.targetAmount ? box.targetAmount / 100 : 0,
     locked: (box.lockedAmount ?? 0) / 100,
     saved: box.balance / 100,
+    protectedAmount: box.balance / 100, // display figure for fully-protected cards
+    isFullyProtected,
     // keep `dueDays` key for backwards compat with existing consumers
     dueDays: daysRemaining,
     daysRemaining,
@@ -1893,16 +1900,35 @@ function TransferForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<{ message: string; hint?: string } | null>(null);
   const [success, setSuccess] = useState(false);
+  // Sprint 14 — lock warning confirmation step for HARD/KEYHOLDER destinations
+  const [showLockWarning, setShowLockWarning] = useState(false);
 
   const currency = (n: number) =>
     n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
-  async function handleSubmit() {
+  const destBox = destBoxes.find((b) => b.id === toBoxId) ?? null;
+  const destIsLocked =
+    !!destBox && !destBox.isWallet &&
+    (destBox.lockType === "HARD" || destBox.lockType === "KEYHOLDER");
+
+  function handleInitialSubmit() {
     setError(null);
     const amt = Number(amount);
     if (!toBoxId) { setError({ message: "Select a destination box" }); return; }
     if (!amt || amt < 1) { setError({ message: "Minimum transfer is $1" }); return; }
 
+    // Sprint 14 — if destination is HARD/KEYHOLDER, show warning before executing.
+    if (destIsLocked) {
+      setShowLockWarning(true);
+      return;
+    }
+    void executeTransfer();
+  }
+
+  async function executeTransfer() {
+    setError(null);
+    setShowLockWarning(false);
+    const amt = Number(amount);
     setLoading(true);
     try {
       const res = await fetch("/api/boxes/transfer", {
@@ -2002,13 +2028,50 @@ function TransferForm({
           Cancel
         </button>
         <button
-          onClick={handleSubmit}
+          onClick={handleInitialSubmit}
           disabled={loading}
           className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium disabled:opacity-50"
         >
           {loading ? "Transferring…" : `Transfer $${amount || "0"}`}
         </button>
       </div>
+
+      {/* Sprint 14 — lock warning modal for HARD/KEYHOLDER destinations */}
+      {showLockWarning && destBox && (
+        <div
+          className="fixed inset-0 bg-black/50 z-[60] flex items-end sm:items-center justify-center"
+          onClick={() => setShowLockWarning(false)}
+        >
+          <div
+            className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              These funds will be locked
+            </h3>
+            <p className="text-sm text-gray-600 leading-snug mb-5">
+              Once transferred, this money will be locked in{" "}
+              <strong>{destBox.name}</strong>. You&apos;ll need to go through
+              the unlock process to access it.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLockWarning(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void executeTransfer()}
+                disabled={loading}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white text-sm font-medium disabled:opacity-50"
+              >
+                {loading ? "Transferring…" : "Confirm transfer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
