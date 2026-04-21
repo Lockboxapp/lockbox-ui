@@ -518,7 +518,7 @@ export async function sendWelcomeEmail({
         <p style="color: #555; line-height: 1.6;">Here's what to do next:</p>
         <ul style="color: #555; line-height: 2;">
           <li>Deposit funds into your box</li>
-          <li>Lock it until your due date</li>
+          <li>Lock it until your target date</li>
           <li>Add a keyholder for extra accountability</li>
         </ul>
 
@@ -535,6 +535,72 @@ export async function sendWelcomeEmail({
         </p>
       </div>
     `,
+  });
+}
+
+// ============================================================
+// Sprint 13 — Transfer execution result (owner notification)
+// ============================================================
+// Fired when a keyholder approves a TRANSFER request. Success copy tells
+// the owner the money moved; failure copy tells them it didn't and the
+// request is marked FAILED — no silent partial state.
+
+export async function sendTransferResult({
+  to,
+  ownerName,
+  sourceBoxName,
+  destinationBoxName,
+  amountDollars,
+  outcome,
+}: {
+  to: string;
+  ownerName?: string | null;
+  sourceBoxName: string;
+  destinationBoxName: string;
+  amountDollars: number;
+  outcome: "APPROVED" | "FAILED";
+}) {
+  const first = ownerName?.split(" ")[0] ?? "there";
+  const amtStr = `$${amountDollars.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+  if (outcome === "APPROVED") {
+    const text = `Hey ${first},
+
+Your keyholder approved the transfer of ${amtStr} from ${sourceBoxName} to ${destinationBoxName}.
+
+The money moved automatically. ${sourceBoxName} stays locked — only the amount you requested was transferred.
+
+You can see the transaction in your activity feed.
+
+— LockBox
+lockboxfinance.com`;
+
+    await resend.emails.send({
+      from: FROM,
+      to,
+      subject: "Your transfer was approved",
+      text,
+    });
+    return;
+  }
+
+  // FAILED
+  const text = `Hey ${first},
+
+Your keyholder approved the transfer of ${amtStr} from ${sourceBoxName} to ${destinationBoxName}, but the transfer could not be completed.
+
+No money has moved. The request is marked failed. You can submit a new transfer request from ${sourceBoxName} if you'd like to try again.
+
+If this keeps happening, reply to this email and we'll look into it.
+
+— LockBox
+lockboxfinance.com`;
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: "Your transfer could not be completed",
+    text,
   });
 }
 

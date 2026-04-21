@@ -94,6 +94,10 @@ model User {
   isRestricted          Boolean   @default(false)
   restrictedAt          DateTime?
   restrictedReason      String?
+
+  // Sprint 13 — IANA timezone captured on signup (e.g. "America/New_York")
+  // Null for users created before this sprint; fall back to UTC on read.
+  timezone              String?
 }
 
 model Account {

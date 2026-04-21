@@ -9,6 +9,8 @@ const signupSchema = z.object({
   name: z.string().optional(),
   email: z.string().email(),
   password: z.string().min(8),
+  // Sprint 13 — IANA timezone captured client-side; null tolerated.
+  timezone: z.string().max(64).optional().nullable(),
 });
 
 function addDays(days: number) {
@@ -32,13 +34,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const { name, email, password } = parsed.data;
+    const { name, email, password, timezone } = parsed.data;
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // 1) Create the user
+    // 1) Create the user (Sprint 13: persist IANA timezone if provided)
     const user = await prisma.user.create({
-      data: { name: name ?? null, email, passwordHash },
+      data: {
+        name: name ?? null,
+        email,
+        passwordHash,
+        timezone: timezone ?? null,
+      },
       select: { id: true, email: true, name: true },
     });
 

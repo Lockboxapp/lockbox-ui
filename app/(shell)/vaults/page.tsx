@@ -26,18 +26,25 @@ type Box = {
 };
 
 function toVaultShape(box: Box) {
+  // Sprint 13 — daysRemaining is the ceiling in days; negative = overdue.
+  const daysRemaining = box.lockUntil
+    ? Math.ceil(
+        (new Date(box.lockUntil).getTime() - Date.now()) /
+          (1000 * 60 * 60 * 24),
+      )
+    : null;
+  const isOverdue = daysRemaining !== null && daysRemaining < 0;
   return {
     id: box.id,
     name: box.name,
     target: box.targetAmount ? box.targetAmount / 100 : 0,
     locked: (box.lockedAmount ?? 0) / 100,
     saved: box.balance / 100,
-    dueDays: box.lockUntil
-      ? Math.ceil(
-          (new Date(box.lockUntil).getTime() - Date.now()) /
-            (1000 * 60 * 60 * 24),
-        )
-      : null,
+    // keep `dueDays` key for backwards compat with existing consumers
+    dueDays: daysRemaining,
+    daysRemaining,
+    isOverdue,
+    lockUntil: box.lockUntil ?? null,
     isLocked: box.status === "LOCKED" || box.status === "UNLOCK_PENDING",
     // Sprint 7 refinement: HARD/KEYHOLDER render as locked when their locked amount is real.
     // After a HARD self-unlock (lockedAmount = 0), the box visibly unlocks. After a
@@ -244,7 +251,7 @@ function VaultsPageInner() {
             onClose={() => setDueDateModal(null)}
             onSuccess={() => {
               setDueDateModal(null);
-              setToast("Due date updated.");
+              setToast("Target date updated.");
               setTimeout(() => setToast(null), 2500);
               fetchBoxes();
             }}
@@ -495,7 +502,7 @@ function DateField({
   return (
     <div>
       <label className="block text-sm font-medium text-gray-700 mb-0.5">
-        Lock until date
+        Target date
       </label>
       <p className="text-xs text-gray-400 mb-2">Funds will be protected until this date.</p>
       <input
@@ -1687,10 +1694,10 @@ function EditDueDateForm({
 
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-lg text-gray-900">Edit due date</h3>
+      <h3 className="font-semibold text-lg text-gray-900">Edit target date</h3>
       <p className="text-xs text-gray-500">{box.name}</p>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-0.5">Lock until date</label>
+        <label className="block text-sm font-medium text-gray-700 mb-0.5">Target date</label>
         <p className="text-xs text-gray-400 mb-2">Funds will be protected until this date.</p>
         <input
           type="date"
@@ -1721,7 +1728,7 @@ function EditDueDateForm({
           disabled={loading}
           className="w-full py-2 text-xs text-gray-500 hover:text-rose-600"
         >
-          Clear due date
+          Clear target date
         </button>
       )}
     </div>

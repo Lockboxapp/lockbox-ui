@@ -298,21 +298,23 @@ export async function PATCH(
     // --------------------------------------------------------
     const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
 
-    // Sprint 7 — due date edits only allowed on SOFT, non-wallet boxes.
+    // Sprint 7 — target date edits only allowed on SOFT, non-wallet boxes.
     // HARD/KEYHOLDER lockUntil can only be set via the lock action at creation/lock time.
+    // Sprint 13 — lockUntil=null is always allowed (clears the target date);
+    // only reject past dates when setting a new target date.
     if (lockUntil !== undefined) {
       if (box.isWallet) {
-        return NextResponse.json({ error: "Wallet has no due date." }, { status: 400 });
+        return NextResponse.json({ error: "Wallet has no target date." }, { status: 400 });
       }
       if (box.lockType !== "SOFT") {
         return NextResponse.json(
-          { error: "Only Flexible (SOFT) boxes can edit the due date." },
+          { error: "Only Flexible (SOFT) boxes can edit the target date." },
           { status: 400 },
         );
       }
       if (lockUntil !== null && new Date(lockUntil) <= new Date()) {
         return NextResponse.json(
-          { error: "lockUntil must be a future date." },
+          { error: "Target date must be in the future." },
           { status: 400 },
         );
       }

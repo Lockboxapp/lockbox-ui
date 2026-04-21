@@ -484,7 +484,7 @@ export default function KeyholderPage() {
         <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 mb-6">
           <Row label="Safe Deposit Box" value={data.box.name} />
           <Row label="Balance" value={currency(data.box.balance)} />
-          {dueDate && <Row label="Due date" value={dueDate} />}
+          {dueDate && <Row label="Target date" value={dueDate} />}
           <Row label="Reason" value={data.reason} />
           {data.reflection && (
             <Row label="Reflection" value={data.reflection} />
@@ -498,7 +498,7 @@ export default function KeyholderPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
           <p className="text-xs text-amber-800 leading-relaxed">
             <strong>If you approve:</strong> The funds in {data.box.name} will
-            be unlocked and {ownerName} can withdraw them before the due date.
+            be unlocked and {ownerName} can withdraw them before the target date.
           </p>
           <p className="text-xs text-amber-800 leading-relaxed mt-2">
             <strong>If you deny:</strong> The funds stay locked. {ownerName} can

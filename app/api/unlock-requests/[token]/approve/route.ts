@@ -106,6 +106,8 @@ export async function POST(
     }
 
     // Sprint 6 — branch on requestType
+    // Sprint 13 — harden: idempotent (handled above by status check), atomic,
+    // explicit FAILED state + owner notification if the $transaction fails.
     const isTransfer = unlockRequest.requestType === "TRANSFER";
 
     if (isTransfer) {
@@ -125,43 +127,112 @@ export async function POST(
         return NextResponse.json({ error: "Locked amount insufficient for transfer" }, { status: 400 });
       }
 
-      await prisma.$transaction([
-        // Move funds: debit source balance+lockedAmount, credit destination balance
-        prisma.box.update({
-          where: { id: unlockRequest.boxId },
-          data: {
-            balance: { decrement: amt },
-            lockedAmount: { decrement: amt },
-            // Box stays LOCKED — status unchanged
-          },
-        }),
-        prisma.box.update({
-          where: { id: destId },
-          data: { balance: { increment: amt } },
-        }),
-        prisma.transaction.create({
-          data: {
-            userId: unlockRequest.box.userId,
-            boxId: unlockRequest.boxId,
-            type: "TRANSFER_OUT",
-            amount: amt,
-            description: `Keyholder-approved transfer to ${destBox.name}`,
-          },
-        }),
-        prisma.transaction.create({
-          data: {
-            userId: unlockRequest.box.userId,
-            boxId: destId,
-            type: "TRANSFER_IN",
-            amount: amt,
-            description: `Keyholder-approved transfer from ${unlockRequest.box.name}`,
-          },
-        }),
-        prisma.unlockRequest.update({
+      try {
+        await prisma.$transaction([
+          // Move funds: debit source balance+lockedAmount, credit destination balance
+          prisma.box.update({
+            where: { id: unlockRequest.boxId },
+            data: {
+              balance: { decrement: amt },
+              lockedAmount: { decrement: amt },
+              // Box stays LOCKED — status unchanged
+            },
+          }),
+          prisma.box.update({
+            where: { id: destId },
+            data: { balance: { increment: amt } },
+          }),
+          prisma.transaction.create({
+            data: {
+              userId: unlockRequest.box.userId,
+              boxId: unlockRequest.boxId,
+              type: "TRANSFER_OUT",
+              amount: amt,
+              description: `Keyholder-approved transfer to ${destBox.name}`,
+            },
+          }),
+          prisma.transaction.create({
+            data: {
+              userId: unlockRequest.box.userId,
+              boxId: destId,
+              type: "TRANSFER_IN",
+              amount: amt,
+              description: `Keyholder-approved transfer from ${unlockRequest.box.name}`,
+            },
+          }),
+          prisma.unlockRequest.update({
+            where: { id: unlockRequest.id },
+            data: { status: UNLOCK_STATUS.APPROVED, resolvedAt: new Date() },
+          }),
+        ]);
+      } catch (txErr) {
+        // Atomic failure — mark the request FAILED and surface to both parties.
+        console.error("[approve/TRANSFER] $transaction failed:", txErr);
+        await prisma.unlockRequest.update({
           where: { id: unlockRequest.id },
-          data: { status: UNLOCK_STATUS.APPROVED, resolvedAt: new Date() },
-        }),
-      ]);
+          data: { status: "FAILED", resolvedAt: new Date() },
+        });
+        await prisma.auditEvent.create({
+          data: {
+            actor: "SYSTEM",
+            action: "TRANSFER_FAILED",
+            targetId: unlockRequest.id,
+            metadata: JSON.stringify({
+              boxId: unlockRequest.boxId,
+              reason: (txErr as Error)?.message ?? "unknown",
+            }),
+          },
+        });
+        // Notify owner by email — best effort; don't mask the primary error.
+        try {
+          const owner = await prisma.user.findUnique({
+            where: { id: unlockRequest.box.userId },
+            select: { email: true, name: true },
+          });
+          if (owner?.email) {
+            const { sendTransferResult } = await import("@/lib/email");
+            await sendTransferResult({
+              to: owner.email,
+              ownerName: owner.name,
+              sourceBoxName: unlockRequest.box.name,
+              destinationBoxName: destBox.name,
+              amountDollars: amt / 100,
+              outcome: "FAILED",
+            });
+          }
+        } catch (emailErr) {
+          console.error("[approve/TRANSFER] owner FAILED email errored:", emailErr);
+        }
+        return NextResponse.json(
+          {
+            error:
+              "Transfer could not be completed. The request has been marked failed and both parties have been notified.",
+            status: "FAILED",
+          },
+          { status: 500 },
+        );
+      }
+
+      // Transfer succeeded — notify the owner
+      try {
+        const owner = await prisma.user.findUnique({
+          where: { id: unlockRequest.box.userId },
+          select: { email: true, name: true },
+        });
+        if (owner?.email) {
+          const { sendTransferResult } = await import("@/lib/email");
+          await sendTransferResult({
+            to: owner.email,
+            ownerName: owner.name,
+            sourceBoxName: unlockRequest.box.name,
+            destinationBoxName: destBox.name,
+            amountDollars: amt / 100,
+            outcome: "APPROVED",
+          });
+        }
+      } catch (emailErr) {
+        console.error("[approve/TRANSFER] owner APPROVED email errored:", emailErr);
+      }
     } else {
       // UNLOCK — full unlock, release all locked funds
       await prisma.$transaction([

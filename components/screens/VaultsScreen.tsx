@@ -12,6 +12,10 @@ type Vault = {
   locked: number;
   saved: number;
   dueDays: number | null;
+  // Sprint 13 — target date is null when cleared; overdue is a negative daysRemaining
+  daysRemaining?: number | null;
+  isOverdue?: boolean;
+  lockUntil?: string | Date | null;
   isLocked: boolean;
   effectivelyLocked?: boolean;
   lockType?: string;
@@ -206,12 +210,23 @@ export default function VaultsScreen({
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <div className="font-semibold">{v.name}</div>
+                      <div className="font-semibold text-gray-900">{v.name}</div>
                       <LockTypeBadge lockType={v.lockType} />
+                      {v.isOverdue && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 font-semibold uppercase tracking-wide">
+                          Overdue
+                        </span>
+                      )}
                     </div>
-                    <div className="text-sm text-gray-500">
+                    <div className="text-sm text-gray-600">
                       {currency(v.target)}
-                      {v.dueDays ? ` due in ${v.dueDays} days` : " target"}
+                      {v.daysRemaining == null
+                        ? " target"
+                        : v.daysRemaining < 0
+                        ? " · target date passed"
+                        : v.daysRemaining === 0
+                        ? " · target today"
+                        : ` · target in ${v.daysRemaining} day${v.daysRemaining === 1 ? "" : "s"}`}
                     </div>
                   </div>
                   <div className="flex items-start gap-1">
@@ -247,7 +262,7 @@ export default function VaultsScreen({
                                   Rename
                                 </button>
                               )}
-                              {/* Sprint 7 — edit due date, SOFT only */}
+                              {/* Sprint 7 — edit target date, SOFT only */}
                               {onEditDueDate && v.lockType === "SOFT" && (
                                 <button
                                   onClick={() => {
@@ -256,7 +271,7 @@ export default function VaultsScreen({
                                   }}
                                   className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                                 >
-                                  Edit due date
+                                  Edit target date
                                 </button>
                               )}
                               {onCloseBox && (

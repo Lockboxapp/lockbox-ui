@@ -84,7 +84,11 @@ export default async function HomePage() {
       prisma.unlockRequest.findMany({
         where: { status: "PENDING", box: { userId } },
         orderBy: { requestedAt: "desc" },
-        include: { box: { select: { id: true, name: true } } },
+        select: {
+          id: true,
+          requestType: true,
+          box: { select: { id: true, name: true } },
+        },
       }),
       prisma.transaction.findMany({
         where: { userId },
@@ -151,37 +155,64 @@ export default async function HomePage() {
   //   3. lockUntil within 14 days AND balance < 80% of targetAmount, OR
   //   4. isPriority === true (manually pinned)
   const scoredBoxes = boxes.map((b) => {
-    const dueDays = dueDaysFrom(b.lockUntil);
+    const daysRemaining = dueDaysFrom(b.lockUntil);
+    const isOverdue = daysRemaining !== null && daysRemaining < 0;
     const progressPercent = b.targetAmount
       ? Math.min(100, Math.round((b.balance / b.targetAmount) * 100))
       : null;
 
-    const hasDue = b.lockUntil !== null && dueDays !== null;
+    const hasTargetDate = b.lockUntil !== null && daysRemaining !== null;
     const qualifiesUnlockPending = b.status === "UNLOCK_PENDING";
+    // Sprint 13 — overdue boxes ALWAYS qualify regardless of how far past.
+    const qualifiesOverdue =
+      isOverdue && b.targetAmount != null && b.balance < b.targetAmount;
     const qualifiesDue7 =
-      hasDue && dueDays! <= 7 && b.targetAmount != null && b.balance < b.targetAmount;
+      hasTargetDate &&
+      daysRemaining! >= 0 &&
+      daysRemaining! <= 7 &&
+      b.targetAmount != null &&
+      b.balance < b.targetAmount;
     const qualifiesDue14 =
-      hasDue && dueDays! <= 14 && b.targetAmount != null && b.balance < b.targetAmount * 0.8;
+      hasTargetDate &&
+      daysRemaining! >= 0 &&
+      daysRemaining! <= 14 &&
+      b.targetAmount != null &&
+      b.balance < b.targetAmount * 0.8;
     const qualifiesPinned = b.isPriority === true;
 
     const qualifies =
-      qualifiesUnlockPending || qualifiesDue7 || qualifiesDue14 || qualifiesPinned;
+      qualifiesUnlockPending ||
+      qualifiesOverdue ||
+      qualifiesDue7 ||
+      qualifiesDue14 ||
+      qualifiesPinned;
 
     // Urgency score — only used for ranking among qualifying boxes
     let score = 0;
     if (qualifiesUnlockPending) score += 5;
-    if (hasDue && dueDays! <= 7) score += 4;
-    else if (hasDue && dueDays! <= 14) score += 2;
+    if (qualifiesOverdue) score += 6; // highest — past deadlines surface first
+    if (hasTargetDate && daysRemaining! >= 0 && daysRemaining! <= 7) score += 4;
+    else if (hasTargetDate && daysRemaining! >= 0 && daysRemaining! <= 14) score += 2;
     if (b.targetAmount && b.balance < b.targetAmount) score += 2;
     if (qualifiesPinned) score += 1;
 
     // Contextual urgency label
     let urgencyLabel: string | null = null;
     if (qualifiesUnlockPending) urgencyLabel = "Unlock pending";
-    else if (hasDue && dueDays! <= 14) urgencyLabel = `Due in ${dueDays}d`;
+    else if (isOverdue) urgencyLabel = "Overdue";
+    else if (hasTargetDate && daysRemaining! <= 14) urgencyLabel = `Target in ${daysRemaining}d`;
     else if (b.targetAmount && b.balance < b.targetAmount * 0.8) urgencyLabel = "Behind target";
 
-    return { ...b, dueDays, progressPercent, urgencyLabel, score, qualifies };
+    return {
+      ...b,
+      dueDays: daysRemaining, // keep old key for existing consumers
+      daysRemaining,
+      isOverdue,
+      progressPercent,
+      urgencyLabel,
+      score,
+      qualifies,
+    };
   });
 
   const priorityBoxes = scoredBoxes
@@ -195,13 +226,41 @@ export default async function HomePage() {
   let bankerInsight: { type: InsightType; message: string };
 
   const unlockPendingQualifier = priorityBoxes.find((b) => b.status === "UNLOCK_PENDING");
+  // Sprint 13 — overdue branch (between empty-locked and unlock-pending in ladder)
+  const overdueQualifier = priorityBoxes.find((b) => b.isOverdue && b.targetAmount);
   const behindQualifier = priorityBoxes.find(
     (b) =>
       b.status !== "UNLOCK_PENDING" &&
+      !b.isOverdue &&
       b.targetAmount &&
       b.balance < b.targetAmount &&
       b.lockUntil,
   );
+
+  // Sprint 13 — Banker pace calculation helper.
+  // Returns a fully formatted string or null if inputs don't qualify for pace coaching.
+  function buildPaceMessage(box: typeof priorityBoxes[number]): string | null {
+    if (!box.targetAmount || !box.lockUntil) return null;
+    const remainingCents = box.targetAmount - box.balance;
+    if (remainingCents <= 0) return `Your ${box.name} is fully funded. Well done.`;
+    const daysLeft = box.daysRemaining;
+    if (daysLeft === null) return null;
+    if (daysLeft < 0) return null; // overdue handled separately
+    const dateStr = new Date(box.lockUntil).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+    // Almost there — skip dollar-per-day when remaining is small change
+    if (remainingCents < 1000) {
+      return `Your ${box.name} is almost there. ${fmt(remainingCents)} to go.`;
+    }
+    if (daysLeft === 0) {
+      return `Your ${box.name} target date is today. ${fmt(remainingCents)} still needed.`;
+    }
+    // Round up to nearest dollar — never divide by zero (guarded above)
+    const dailyDollars = Math.ceil(remainingCents / daysLeft / 100);
+    return `Your ${box.name} target is ${dateStr}. You need $${dailyDollars}/day to get there on time.`;
+  }
 
   // Sprint 5: empty-locked nudge takes highest priority — HARD/KEYHOLDER box created but unfunded
   const emptyLockedBox = boxes.find(
@@ -231,6 +290,18 @@ export default async function HomePage() {
       type: "behind_target",
       message: `You created ${emptyLockedBox.name} to lock away some money. Let's start doing that.`,
     };
+  } else if (overdueQualifier) {
+    // Sprint 13 — overdue branch sits above unlock_pending per spec
+    const dateStr = overdueQualifier.lockUntil
+      ? new Date(overdueQualifier.lockUntil).toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+        })
+      : "earlier";
+    bankerInsight = {
+      type: "behind_target",
+      message: `Your ${overdueQualifier.name} target date was ${dateStr}. Do you want to extend it or start withdrawing?`,
+    };
   } else if (missingKeyholderBox) {
     bankerInsight = {
       type: "behind_target",
@@ -247,9 +318,13 @@ export default async function HomePage() {
       message: `Your Wallet is running low. You have ${fmt(walletBalance)} left. You also have money protected in boxes — only move what you need.`,
     };
   } else if (behindQualifier) {
+    // Sprint 13 — use pace calculation if inputs qualify, fall back to generic copy.
+    const paceMsg = buildPaceMessage(behindQualifier);
     bankerInsight = {
       type: "behind_target",
-      message: `Your ${behindQualifier.name} is behind. You may not hit your target in time.`,
+      message:
+        paceMsg ??
+        `Your ${behindQualifier.name} is behind. You may not hit your target in time.`,
     };
   } else {
     // 30-day discipline check: active 30+ days with no unlock requests
@@ -263,18 +338,60 @@ export default async function HomePage() {
     }
   }
 
-  // ── 4. Today's Actions (Sprint 2 Fix 5: tightened logic) ────────────────
-  // "Add funds" only fires for boxes that are LOCKED + have lockUntil + due within 14d + below 80% target.
-  type ActionType = "unlock_request" | "underfunded_box";
-  const todaysActions: Array<{ type: ActionType; label: string; targetId: string; href: string }> = [];
+  // ── 4. Today's Actions (Sprint 2 Fix 5: tightened logic; Sprint 13: +transfer +overdue) ──
+  type ActionType =
+    | "unlock_request"
+    | "transfer_pending"
+    | "underfunded_box"
+    | "overdue_box";
+  const todaysActions: Array<{
+    type: ActionType;
+    label: string;
+    targetId: string;
+    href: string;
+  }> = [];
 
-  if (pendingUnlockRequests.length > 0) {
-    const count = pendingUnlockRequests.length;
+  // Sprint 13 — split pending requests by type so transfer-in-flight is visible.
+  const pendingUnlocks = pendingUnlockRequests.filter(
+    (r) => r.requestType !== "TRANSFER",
+  );
+  const pendingTransfers = pendingUnlockRequests.filter(
+    (r) => r.requestType === "TRANSFER",
+  );
+
+  if (pendingUnlocks.length > 0) {
+    const count = pendingUnlocks.length;
     todaysActions.push({
       type: "unlock_request",
       label: `Review ${count} pending unlock request${count > 1 ? "s" : ""}`,
-      targetId: pendingUnlockRequests[0].box.id,
-      href: `/vaults?box=${pendingUnlockRequests[0].box.id}`,
+      targetId: pendingUnlocks[0].box.id,
+      href: `/vaults?box=${pendingUnlocks[0].box.id}`,
+    });
+  }
+
+  for (const r of pendingTransfers) {
+    todaysActions.push({
+      type: "transfer_pending",
+      label: `Waiting for your keyholder to approve your transfer from ${r.box.name}`,
+      targetId: r.box.id,
+      href: `/vaults?box=${r.box.id}`,
+    });
+  }
+
+  // Sprint 13 — overdue boxes with a target amount below goal get a clear action.
+  const overdueBoxes = boxes.filter(
+    (b) =>
+      b.lockUntil &&
+      new Date(b.lockUntil) < now &&
+      b.targetAmount != null &&
+      b.balance < b.targetAmount,
+  );
+  for (const b of overdueBoxes.slice(0, 2)) {
+    todaysActions.push({
+      type: "overdue_box",
+      label: `${b.name} target date has passed — extend it or start withdrawing`,
+      targetId: b.id,
+      href: `/vaults?box=${b.id}`,
     });
   }
 
@@ -283,7 +400,9 @@ export default async function HomePage() {
     if (!b.lockUntil) return false;
     if (!b.targetAmount) return false;
     const dueDays = dueDaysFrom(b.lockUntil);
-    if (dueDays === null || dueDays > 14) return false;
+    // Sprint 13 — overdue boxes are handled above; this bucket is for
+    // still-on-track windows only (0..14 days remaining).
+    if (dueDays === null || dueDays < 0 || dueDays > 14) return false;
     return b.balance < b.targetAmount * 0.8;
   });
 
@@ -348,8 +467,12 @@ export default async function HomePage() {
         </div>
         {nextDueBox && nextDueDays !== null && (
           <div className="mt-3 text-xs opacity-60">
-            Next due: {nextDueBox.name}{" "}
-            {nextDueDays <= 0 ? "· today" : `· in ${nextDueDays}d`}
+            Next target: {nextDueBox.name}{" "}
+            {nextDueDays < 0
+              ? "· target date passed"
+              : nextDueDays === 0
+              ? "· today"
+              : `· in ${nextDueDays}d`}
           </div>
         )}
       </div>
@@ -412,7 +535,9 @@ export default async function HomePage() {
                     {box.lockUntil && box.dueDays !== null ? (
                       <div
                         className={`text-xs mt-0.5 ${
-                          box.dueDays <= 0
+                          box.dueDays < 0
+                            ? "text-rose-600 font-medium"
+                            : box.dueDays === 0
                             ? "text-rose-600 font-medium"
                             : box.dueDays <= 7
                             ? "text-rose-500"
@@ -421,9 +546,11 @@ export default async function HomePage() {
                             : "text-gray-400"
                         }`}
                       >
-                        {box.dueDays <= 0
-                          ? "Due today"
-                          : `Due in ${box.dueDays}d`}
+                        {box.dueDays < 0
+                          ? "Target date passed"
+                          : box.dueDays === 0
+                          ? "Target today"
+                          : `Target in ${box.dueDays}d`}
                       </div>
                     ) : (
                       <div className="text-xs mt-0.5 text-gray-400">Open-ended</div>
@@ -434,9 +561,11 @@ export default async function HomePage() {
                       className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
                         box.urgencyLabel === "Unlock pending"
                           ? "bg-amber-100 text-amber-700"
+                          : box.urgencyLabel === "Overdue"
+                          ? "bg-rose-100 text-rose-700"
                           : box.urgencyLabel === "Behind target"
                           ? "bg-indigo-100 text-indigo-700"
-                          : box.dueDays !== null && box.dueDays <= 7
+                          : box.dueDays !== null && box.dueDays >= 0 && box.dueDays <= 7
                           ? "bg-rose-100 text-rose-700"
                           : "bg-amber-100 text-amber-700"
                       }`}
@@ -493,10 +622,20 @@ export default async function HomePage() {
                   className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 text-sm ${
                     action.type === "unlock_request"
                       ? "bg-amber-100"
+                      : action.type === "transfer_pending"
+                      ? "bg-indigo-100"
+                      : action.type === "overdue_box"
+                      ? "bg-rose-100"
                       : "bg-blue-100"
                   }`}
                 >
-                  {action.type === "unlock_request" ? "🔓" : "💰"}
+                  {action.type === "unlock_request"
+                    ? "🔓"
+                    : action.type === "transfer_pending"
+                    ? "⏳"
+                    : action.type === "overdue_box"
+                    ? "⚠️"
+                    : "💰"}
                 </div>
                 <div className="flex-1 text-sm font-medium text-gray-800 leading-snug">
                   {action.label}

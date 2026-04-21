@@ -1041,7 +1041,7 @@ const bodyHtml = `
     </div>
     <div class="story-body reveal">
       I kept spending money that was supposed to go to bills. Not because I didn't care &mdash; because I couldn't stop myself in the moment. I needed something that would get in the way. Something that would make me pause, explain myself, and think twice before touching money I'd already committed.<br><br>
-      LockBox is that something. Lock your money, set a due date, and the only way out is through a process that forces you to reckon with what you're doing. For extra accountability, add a keyholder &mdash; someone who has to approve before a single dollar moves.
+      LockBox is that something. Lock your money, set a target date, and the only way out is through a process that forces you to reckon with what you're doing. For extra accountability, add a keyholder &mdash; someone who has to approve before a single dollar moves.
     </div>
     <div class="story-attribution reveal">
       <div class="story-avatar">D</div>
@@ -1067,7 +1067,7 @@ const bodyHtml = `
     <div class="step reveal">
       <div class="step-number">2</div>
       <h3>Lock it</h3>
-      <p>Set a due date. Choose how strict you want the lock. The money is now off-limits until you say otherwise &mdash; or until your keyholder does.</p>
+      <p>Set a target date. Choose how strict you want the lock. The money is now off-limits until you say otherwise &mdash; or until your keyholder does.</p>
     </div>
     <div class="step reveal">
       <div class="step-number">3</div>
@@ -1110,7 +1110,7 @@ const bodyHtml = `
       </div>
       <div class="feature reveal">
         <span class="feature-icon">&#x23F1;&#xFE0F;</span>
-        <h4>Due date locking</h4>
+        <h4>Target date locking</h4>
         <p>Set a date. Money stays locked until then. No exceptions unless you go through the process.</p>
       </div>
     </div>

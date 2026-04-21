@@ -31,11 +31,20 @@ function OnboardSignupInner() {
     setError("");
 
     try {
+      // Sprint 13 — capture IANA timezone client-side and send with signup.
+      // Fallback handled server-side if the API is unavailable on this environment.
+      let timezone: string | null = null;
+      try {
+        timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? null;
+      } catch {
+        timezone = null;
+      }
+
       // Create account
       const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, timezone }),
       });
 
       const data = await res.json();

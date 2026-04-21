@@ -15,6 +15,10 @@ type RequestData = {
   reason: string;
   reflection: string | null;
   requestedAt: string;
+  // Sprint 13 — transfer requests carry extra metadata
+  requestType?: "UNLOCK" | "TRANSFER";
+  transferAmount?: number | null;
+  destinationBoxName?: string | null;
   box: {
     name: string;
     balance: number;
@@ -277,27 +281,33 @@ function KeyholderPageInner() {
       </Shell>
     );
 
-  if (pageState === "success_approved" && data)
+  if (pageState === "success_approved" && data) {
+    const isTransfer = data.requestType === "TRANSFER";
+    const ownerLabel = data.owner.name || data.owner.email;
+    const title = isTransfer ? "Transfer approved" : "Unlock approved";
+    const message = isTransfer
+      ? `You approved ${ownerLabel}'s transfer of $${data.transferAmount ?? 0} from ${data.box.name}${data.destinationBoxName ? ` to ${data.destinationBoxName}` : ""}. The money moved automatically and the box stays locked.`
+      : `You approved ${ownerLabel}'s request to unlock ${data.box.name}. They've been notified.`;
     return (
       <Shell>
-        <StatusCard
-          icon="✅"
-          title="Unlock approved"
-          message={`You approved ${data.owner.name || data.owner.email}'s request to unlock ${data.box.name}. They've been notified.`}
-        />
+        <StatusCard icon="✅" title={title} message={message} />
       </Shell>
     );
+  }
 
-  if (pageState === "success_denied" && data)
+  if (pageState === "success_denied" && data) {
+    const isTransfer = data.requestType === "TRANSFER";
+    const ownerLabel = data.owner.name || data.owner.email;
+    const title = isTransfer ? "Transfer denied" : "Unlock denied";
+    const message = isTransfer
+      ? `You denied ${ownerLabel}'s transfer from ${data.box.name}. No money moved. They can submit a new request.`
+      : `You denied ${ownerLabel}'s request to unlock ${data.box.name}. The funds remain locked. They can request again in 24 hours.`;
     return (
       <Shell>
-        <StatusCard
-          icon="🔒"
-          title="Unlock denied"
-          message={`You denied ${data.owner.name || data.owner.email}'s request to unlock ${data.box.name}. The funds remain locked. They can request again in 24 hours.`}
-        />
+        <StatusCard icon="🔒" title={title} message={message} />
       </Shell>
     );
+  }
 
   if (pageState === "email_step")
     return (
@@ -400,7 +410,8 @@ function KeyholderPageInner() {
 
   if (pageState === "valid" && data) {
     const ownerName = data.owner.name || data.owner.email;
-    const dueDate = data.box.lockUntil
+    const isTransfer = data.requestType === "TRANSFER";
+    const targetDate = data.box.lockUntil
       ? new Date(data.box.lockUntil).toLocaleDateString(undefined, {
           month: "long",
           day: "numeric",
@@ -412,17 +423,40 @@ function KeyholderPageInner() {
         <div className="text-center mb-6">
           <div className="text-3xl mb-3">🔐</div>
           <h1 className="text-xl font-semibold text-gray-900">
-            Unlock request
+            {isTransfer ? "Transfer request" : "Unlock request"}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            <strong>{ownerName}</strong> is asking you to approve an early
-            unlock
+            {isTransfer ? (
+              <>
+                <strong>{ownerName}</strong> wants to transfer{" "}
+                <strong>${data.transferAmount ?? 0}</strong> from{" "}
+                <strong>{data.box.name}</strong>
+                {data.destinationBoxName ? (
+                  <> to <strong>{data.destinationBoxName}</strong></>
+                ) : null}
+                . The box will remain locked after this transfer.
+              </>
+            ) : (
+              <>
+                <strong>{ownerName}</strong> is asking you to approve an early
+                unlock
+              </>
+            )}
           </p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 mb-6">
           <Row label="Safe Deposit Box" value={data.box.name} />
           <Row label="Balance" value={currency(data.box.balance)} />
-          {dueDate && <Row label="Due date" value={dueDate} />}
+          {isTransfer && data.transferAmount != null && (
+            <Row
+              label="Transfer amount"
+              value={currency(data.transferAmount)}
+            />
+          )}
+          {isTransfer && data.destinationBoxName && (
+            <Row label="Destination" value={data.destinationBoxName} />
+          )}
+          {targetDate && <Row label="Target date" value={targetDate} />}
           <Row label="Reason" value={data.reason} />
           {data.reflection && (
             <Row label="Reflection" value={data.reflection} />
@@ -433,14 +467,32 @@ function KeyholderPageInner() {
           />
         </div>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6">
-          <p className="text-xs text-amber-800 leading-relaxed">
-            <strong>If you approve:</strong> The funds in {data.box.name} will
-            be unlocked and {ownerName} can withdraw them before the due date.
-          </p>
-          <p className="text-xs text-amber-800 leading-relaxed mt-2">
-            <strong>If you deny:</strong> The funds stay locked. {ownerName} can
-            request again in 24 hours.
-          </p>
+          {isTransfer ? (
+            <>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                <strong>If you approve:</strong> the requested amount moves from{" "}
+                {data.box.name}
+                {data.destinationBoxName ? ` to ${data.destinationBoxName}` : ""}
+                . The source box stays locked. Only the amount requested moves.
+              </p>
+              <p className="text-xs text-amber-800 leading-relaxed mt-2">
+                <strong>If you deny:</strong> no money moves. {ownerName} can
+                submit a new transfer request.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                <strong>If you approve:</strong> The funds in {data.box.name}{" "}
+                will be unlocked and {ownerName} can withdraw them before the
+                target date.
+              </p>
+              <p className="text-xs text-amber-800 leading-relaxed mt-2">
+                <strong>If you deny:</strong> The funds stay locked. {ownerName}{" "}
+                can request again in 24 hours.
+              </p>
+            </>
+          )}
         </div>
         {error && (
           <p className="text-sm text-rose-600 text-center mb-4">{error}</p>
@@ -451,14 +503,22 @@ function KeyholderPageInner() {
             disabled={loading}
             className="w-full py-3.5 rounded-xl bg-emerald-600 text-white font-semibold text-sm disabled:opacity-50"
           >
-            {loading ? "Processing…" : "✅ Approve unlock"}
+            {loading
+              ? "Processing…"
+              : isTransfer
+              ? "✅ Approve transfer"
+              : "✅ Approve unlock"}
           </button>
           <button
             onClick={() => handleAction("deny")}
             disabled={loading}
             className="w-full py-3.5 rounded-xl bg-white border border-gray-200 text-gray-700 font-semibold text-sm disabled:opacity-50"
           >
-            {loading ? "Processing…" : "🔒 Deny unlock"}
+            {loading
+              ? "Processing…"
+              : isTransfer
+              ? "🔒 Deny transfer"
+              : "🔒 Deny unlock"}
           </button>
         </div>
         <p className="text-xs text-gray-400 text-center mt-6">
