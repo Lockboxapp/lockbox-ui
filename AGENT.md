@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 21, 2026 — Sprint 13 complete (transfer approval, target date, banker pace, timezone).
+# Last updated: April 21, 2026 — Sprint 14 complete (transfer in, protected display, lock warning, user acceptance, banker carousel).
 # ============================================================
 
 ---
@@ -156,7 +156,9 @@ Convert to dollars only at the display layer. Never store floats for money.
     userId                  String
     keyholderRelationshipId String?
     requestType             RequestType @default(UNLOCK)
-    status                  String      // 'PENDING' | 'APPROVED' | 'DENIED' | 'EXPIRED'
+    // Sprint 14 — status now includes PENDING_USER_ACCEPTANCE, CANCELLED_BY_USER, FAILED
+    status                  String      // PENDING | APPROVED | DENIED | EXPIRED |
+                                         // PENDING_USER_ACCEPTANCE | CANCELLED_BY_USER | FAILED
     reason                  String?
     transferAmount          Int?        // CENTS — for TRANSFER type only
     destinationBoxId        String?     // for TRANSFER type only
@@ -244,9 +246,14 @@ Convert to dollars only at the display layer. Never store floats for money.
   POST /api/boxes/transfer        <- internal transfer between boxes
 
 ### Unlock / Transfer Requests
-  POST /api/unlock-requests                   <- create UNLOCK or TRANSFER request
-  POST /api/unlock-requests/[token]/approve   <- keyholder approves (no auth)
-  POST /api/unlock-requests/[token]/deny      <- keyholder denies (no auth)
+  POST /api/unlock-requests                          <- create UNLOCK or TRANSFER request
+  POST /api/unlock-requests/[token]/approve          <- keyholder approves (no auth)
+  POST /api/unlock-requests/[token]/deny             <- keyholder denies (no auth)
+  POST /api/unlock-requests/[token]/accept           <- owner accepts a keyholder-approved
+                                                        TRANSFER into HARD/KEYHOLDER dest;
+                                                        [token] value is UnlockRequest.id
+                                                        (session-authed owner, idempotent)
+  POST /api/unlock-requests/[token]/cancel-by-user   <- owner cancels the above, funds stay
 
 ### Keyholders
   GET    /api/keyholders                   <- all relationships for user
@@ -480,7 +487,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 13, April 21, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 14, April 21, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -545,6 +552,19 @@ BUILT AND DEPLOYED:
     get there on time."
   User.timezone captured on signup — Intl.DateTimeFormat().resolvedOptions();
     null fallback for pre-Sprint-13 users.
+  Transfer IN never blocked by destination lockType (enforcement gates only
+    on source box).
+  Protected display — HARD and KEYHOLDER vault cards show a single amber
+    "Protected: $X" figure instead of Saved/Locked split. SOFT boxes keep
+    the split; Wallet unchanged.
+  Lock warning before direct transfers into HARD/KEYHOLDER destinations.
+  PENDING_USER_ACCEPTANCE flow — keyholder-approved transfers into
+    HARD/KEYHOLDER destinations are NOT auto-executed. UnlockRequest is set
+    to PENDING_USER_ACCEPTANCE, user gets an email + a top-of-Today's-Actions
+    row that opens a modal. Accept executes atomically (idempotent; FAILED
+    on $transaction error). Cancel sets CANCELLED_BY_USER, funds stay.
+  Banker carousel — priority-ordered array of messages, swipeable on mobile,
+    dot indicators + chevrons for multi-card, single-card visual unchanged.
 
 ---
 
@@ -684,6 +704,31 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 14 — Transfer In + Protected Display + Lock Warning + User Acceptance + Banker Carousel (Apr 21, commit 0e5ad45)
+  Bug 1: transfer route documented — destination lockType never blocks
+    transfer in; only source is gated.
+  Protected display: toVaultShape adds isFullyProtected + protectedAmount;
+    VaultsScreen card shows amber "Protected: $X" for HARD/KEYHOLDER; SOFT
+    and Wallet unchanged.
+  Direct transfer lock warning: TransferForm opens a confirmation modal
+    when destination is HARD/KEYHOLDER before hitting /api/boxes/transfer.
+  PENDING_USER_ACCEPTANCE + CANCELLED_BY_USER + FAILED added to
+    UNLOCK_STATUS constants (no DB migration — status column is String).
+  Approve route (TRANSFER branch) now defers auto-execution when the
+    destination is HARD/KEYHOLDER — sets PENDING_USER_ACCEPTANCE and
+    emails the owner via sendTransferAwaitingAcceptance. SOFT/Wallet
+    destinations still auto-execute.
+  Two new session-authed routes (both idempotent):
+    POST /api/unlock-requests/[token]/accept
+    POST /api/unlock-requests/[token]/cancel-by-user
+    (dynamic slot is [token] for route-collision safety; incoming value is
+    UnlockRequest.id, not the keyholder approval token).
+  PendingAcceptanceRow client component at the top of Today's Actions —
+    tap opens a modal with amount/source/destination copy and Accept /
+    Cancel buttons that call the routes + router.refresh().
+  BankerCarousel client component — priority-ordered message array,
+    swipe/chevron/dot-indicator navigation, single-card fallback.
 
 Sprint 13 — Transfer Approval + Target Date + Banker Pace + Timezone (Apr 21, commit 59dc8b9)
   Bug 1 (P0): GET /api/unlock-requests/[token] exposes requestType +
