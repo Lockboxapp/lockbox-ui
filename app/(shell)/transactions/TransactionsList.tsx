@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, ArrowRight, CreditCard } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ArrowRight, CreditCard, Lock, Unlock } from "lucide-react";
 
 export type BoxOption = {
   id: string;
@@ -25,7 +25,14 @@ type Tx = {
   box: { id: string; name: string; lockType: string } | null;
 };
 
-type BucketFilter = "all" | "deposit" | "withdraw" | "transfer" | "card_spend";
+type BucketFilter =
+  | "all"
+  | "deposit"
+  | "withdraw"
+  | "transfer"
+  | "card_spend"
+  | "lock"
+  | "unlock";
 type RangeFilter = "all" | "this_week" | "this_month" | "last_3_months";
 
 const PAGE_SIZE = 25;
@@ -53,6 +60,10 @@ function iconFor(type: string) {
     case "WITHDRAW":
     case "WITHDRAWAL":
       return <ArrowUpRight className={`${cls} text-rose-600`} />;
+    case "LOCK":
+      return <Lock className={`${cls} text-gray-700`} />;
+    case "UNLOCK":
+      return <Unlock className={`${cls} text-amber-600`} />;
     default:
       return <ArrowRight className={`${cls} text-gray-500`} />;
   }
@@ -70,6 +81,10 @@ function bgFor(type: string) {
     case "WITHDRAW":
     case "WITHDRAWAL":
       return "bg-rose-50";
+    case "LOCK":
+      return "bg-gray-100";
+    case "UNLOCK":
+      return "bg-amber-50";
     default:
       return "bg-gray-50";
   }
@@ -177,6 +192,8 @@ export default function TransactionsList({ boxes }: { boxes: BoxOption[] }) {
               <option value="withdraw">Withdrawals</option>
               <option value="transfer">Transfers</option>
               <option value="card_spend">Card spend</option>
+              <option value="lock">Locks</option>
+              <option value="unlock">Unlocks</option>
             </select>
           </div>
           <div>
@@ -213,6 +230,8 @@ export default function TransactionsList({ boxes }: { boxes: BoxOption[] }) {
             const inflow = INFLOW_TYPES.has(tx.type);
             const { title, subtitle } = titleFor(tx);
             const amtDollars = Math.round(tx.amountCents / 100);
+            // LOCK/UNLOCK rows are event markers (amount=0) — skip the dollar figure.
+            const isEventRow = tx.type === "LOCK" || tx.type === "UNLOCK";
             const amtStr = `${inflow ? "+" : "−"}$${amtDollars.toLocaleString("en-US")}`;
             const dateStr = new Date(tx.postedAt).toLocaleString("en-US", {
               month: "short",
@@ -241,13 +260,15 @@ export default function TransactionsList({ boxes }: { boxes: BoxOption[] }) {
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <div
-                    className={`text-sm font-semibold ${
-                      inflow ? "text-emerald-600" : "text-gray-900"
-                    }`}
-                  >
-                    {amtStr}
-                  </div>
+                  {!isEventRow && (
+                    <div
+                      className={`text-sm font-semibold ${
+                        inflow ? "text-emerald-600" : "text-gray-900"
+                      }`}
+                    >
+                      {amtStr}
+                    </div>
+                  )}
                   <div className="text-[11px] text-gray-400 whitespace-nowrap">
                     {dateStr}
                   </div>

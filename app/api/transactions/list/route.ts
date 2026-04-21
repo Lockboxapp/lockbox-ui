@@ -48,6 +48,10 @@ function bucketToTypes(bucket: string | null): string[] | null {
       return ["TRANSFER_IN", "TRANSFER_OUT", "TRANSFER"];
     case "card_spend":
       return ["CARD_SPEND"];
+    case "lock":
+      return ["LOCK"];
+    case "unlock":
+      return ["UNLOCK"];
     default:
       return null;
   }
