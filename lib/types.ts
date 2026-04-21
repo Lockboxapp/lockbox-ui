@@ -6,6 +6,9 @@ export const TX = {
   TRANSFER_IN: "TRANSFER_IN",
   TRANSFER_OUT: "TRANSFER_OUT",
   INCOME: "INCOME",
+  // Sprint 15 — distinct from WITHDRAW so card purchases get their own
+  // icon + merchant display in the activity feed.
+  CARD_SPEND: "CARD_SPEND",
 } as const;
 
 export type TransactionType = (typeof TX)[keyof typeof TX];

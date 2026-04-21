@@ -63,7 +63,7 @@ export default function SettingsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h2 className="text-2xl font-semibold mb-6">Settings</h2>
+      <h2 className="text-2xl font-semibold text-gray-900 mb-6">Settings</h2>
 
       {/* User info */}
       {session?.user && (

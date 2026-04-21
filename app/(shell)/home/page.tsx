@@ -37,10 +37,15 @@ const LOCKED_STATUSES = ["LOCKED", "UNLOCK_PENDING"];
 
 const TX_LABELS: Record<string, string> = {
   DEPOSIT: "Added funds",
+  WITHDRAW: "Withdrew funds",
   WITHDRAWAL: "Withdrew funds",
   TRANSFER: "Transferred",
+  TRANSFER_IN: "Received transfer",
+  TRANSFER_OUT: "Sent transfer",
   LOCK: "Locked funds",
   UNLOCK: "Unlocked funds",
+  // Sprint 15 — CARD_SPEND rows include merchant via description field.
+  CARD_SPEND: "Card purchase",
 };
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -484,15 +489,25 @@ export default async function HomePage() {
   }
 
   // ── 6. Recent Activity ───────────────────────────────────────────────────
-  const recentActivity = recentTransactions.map((tx) => ({
-    id: tx.id,
-    type: tx.type,
-    label:
-      (TX_LABELS[tx.type] ?? tx.type) +
-      (tx.box?.name ? ` · ${tx.box.name}` : ""),
-    amount: tx.amount,
-    postedAt: tx.postedAt,
-  }));
+  // Sprint 15 — CARD_SPEND rows surface the merchant (from description) instead
+  // of the box name so the activity feed reads like a statement entry.
+  const recentActivity = recentTransactions.map((tx) => {
+    const base = TX_LABELS[tx.type] ?? tx.type;
+    let label: string;
+    if (tx.type === "CARD_SPEND") {
+      const merchant = tx.description?.replace(/^Card purchase — /, "") ?? "";
+      label = merchant ? `${base} · ${merchant}` : base;
+    } else {
+      label = base + (tx.box?.name ? ` · ${tx.box.name}` : "");
+    }
+    return {
+      id: tx.id,
+      type: tx.type,
+      label,
+      amount: tx.amount,
+      postedAt: tx.postedAt,
+    };
+  });
 
   // ── Greeting ─────────────────────────────────────────────────────────────
   const hour = now.getHours();
@@ -691,8 +706,16 @@ export default async function HomePage() {
 
       {/* ── 6. Recent Activity ── */}
       <div>
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
-          Recent Activity
+        <div className="flex items-baseline justify-between mb-3">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+            Recent Activity
+          </div>
+          <Link
+            href="/transactions"
+            className="text-xs text-emerald-600 font-medium hover:text-emerald-700"
+          >
+            View all →
+          </Link>
         </div>
         {recentActivity.length === 0 ? (
           <div className="bg-white border border-gray-100 rounded-2xl px-4 py-5 text-sm text-gray-400 text-center shadow-sm">

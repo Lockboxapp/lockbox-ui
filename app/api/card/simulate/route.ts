@@ -85,7 +85,9 @@ export async function POST(req: NextRequest) {
         data: {
           userId: session.user.id,
           boxId: wallet.id,
-          type: "WITHDRAW",
+          // Sprint 15 — distinct type so the activity feed can show a card
+          // icon and merchant name instead of a generic withdraw arrow.
+          type: "CARD_SPEND",
           amount: amtCents,
           description: `Card purchase — ${merchant}`,
         },

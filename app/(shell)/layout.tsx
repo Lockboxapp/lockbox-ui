@@ -152,6 +152,12 @@ export default function ShellLayout({
                   href: null,
                 },
                 {
+                  icon: "📦",
+                  label: "My boxes",
+                  sub: "Rename, change protection, close",
+                  href: "/vaults",
+                },
+                {
                   icon: "👥",
                   label: "Manage Accountability Partners",
                   sub: "Keyholders",

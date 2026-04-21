@@ -39,6 +39,7 @@ type Props = {
   onCloseBox?: (id: string) => void;
   onRenameBox?: (id: string) => void;
   onEditDueDate?: (id: string) => void;
+  onChangeProtection?: (id: string) => void;
   onReopenBox?: (id: string) => void;
   onSwitchToFlexible?: (id: string) => void;
   onAssignKeyholder?: () => void;
@@ -99,6 +100,7 @@ export default function VaultsScreen({
   onCloseBox,
   onRenameBox,
   onEditDueDate,
+  onChangeProtection,
   onReopenBox,
   onSwitchToFlexible,
   onAssignKeyholder,
@@ -120,7 +122,7 @@ export default function VaultsScreen({
     <div className="px-4 py-5 space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold">Vaults</h2>
+        <h2 className="text-2xl font-semibold text-gray-900">Vaults</h2>
         {hasVaults && (
           <motion.button
             whileTap={{ scale: 0.96 }}
@@ -244,7 +246,7 @@ export default function VaultsScreen({
                         </span>
                       )}
                     </div>
-                    {(onCloseBox || onRenameBox || onEditDueDate) && (
+                    {(onCloseBox || onRenameBox || onEditDueDate || onChangeProtection) && (
                       <div className="relative">
                         <button
                           onClick={() =>
@@ -283,6 +285,18 @@ export default function VaultsScreen({
                                   className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                                 >
                                   Edit target date
+                                </button>
+                              )}
+                              {/* Sprint 15 — change protection type; never for Wallet */}
+                              {onChangeProtection && !v.isWallet && (
+                                <button
+                                  onClick={() => {
+                                    setOpenMenuId(null);
+                                    onChangeProtection(v.id);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                >
+                                  Change protection type
                                 </button>
                               )}
                               {onCloseBox && (

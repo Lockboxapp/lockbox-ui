@@ -107,6 +107,7 @@ function VaultsPageInner() {
   const [closeModal, setCloseModal] = useState<null | { vaultId: string }>(null);
   const [renameModal, setRenameModal] = useState<null | { vaultId: string }>(null);
   const [dueDateModal, setDueDateModal] = useState<null | { vaultId: string }>(null);
+  const [protectionModal, setProtectionModal] = useState<null | { vaultId: string }>(null);
   const [toast, setToast] = useState<string | null>(null);
   // Sprint 11 — active keyholder relationships, used to derive missingKeyholder state
   type ActiveKH = {
@@ -209,6 +210,7 @@ function VaultsPageInner() {
         onCloseBox={(id) => setCloseModal({ vaultId: id })}
         onRenameBox={(id) => setRenameModal({ vaultId: id })}
         onEditDueDate={(id) => setDueDateModal({ vaultId: id })}
+        onChangeProtection={(id) => setProtectionModal({ vaultId: id })}
         onReopenBox={handleReopen}
         onSwitchToFlexible={handleSwitchToFlexible}
         onAssignKeyholder={() => router.push("/keyholders")}
@@ -236,6 +238,19 @@ function VaultsPageInner() {
               }
               fetchBoxes();
             }}
+            // Sprint 15 — tappable blocker CTAs redirect to the right flow
+            onGoTransfer={(id) => {
+              setCloseModal(null);
+              setShowTransfer({ id });
+            }}
+            onGoUnlock={(id) => {
+              setCloseModal(null);
+              setUnlockModal({ vaultId: id });
+            }}
+            onGoKeyholders={() => {
+              setCloseModal(null);
+              router.push("/keyholders");
+            }}
           />
         </ModalSheet>
       )}
@@ -260,6 +275,22 @@ function VaultsPageInner() {
               setDueDateModal(null);
               setToast("Target date updated.");
               setTimeout(() => setToast(null), 2500);
+              fetchBoxes();
+            }}
+          />
+        </ModalSheet>
+      )}
+      {protectionModal && (
+        <ModalSheet onClose={() => setProtectionModal(null)}>
+          <ChangeProtectionForm
+            box={getBox(protectionModal.vaultId) ?? null}
+            onClose={() => setProtectionModal(null)}
+            onSuccess={(msg) => {
+              setProtectionModal(null);
+              if (msg) {
+                setToast(msg);
+                setTimeout(() => setToast(null), 3000);
+              }
               fetchBoxes();
             }}
           />
@@ -318,7 +349,7 @@ function VaultsPageInner() {
         // SOFT or Wallet: direct transfer
         return (
           <ModalSheet onClose={close}>
-            <h3 className="font-semibold text-lg mb-4">Transfer Funds</h3>
+            <h3 className="font-semibold text-lg text-gray-900 mb-4">Transfer Funds</h3>
             <TransferForm
               fromBoxId={showTransfer.id}
               allBoxes={boxes}
@@ -332,7 +363,7 @@ function VaultsPageInner() {
       {/* Create box modal */}
       {newVaultOpen && (
         <ModalSheet onClose={() => setNewVaultOpen(false)}>
-          <h3 className="font-semibold text-lg mb-4">New Safe Deposit Box</h3>
+          <h3 className="font-semibold text-lg text-gray-900 mb-4">New Safe Deposit Box</h3>
           <CreateBoxForm
             onClose={() => setNewVaultOpen(false)}
             onSuccess={() => {
@@ -346,7 +377,7 @@ function VaultsPageInner() {
       {/* Deposit modal */}
       {addFundsModal && (
         <ModalSheet onClose={() => setAddFundsModal(null)}>
-          <h3 className="font-semibold text-lg mb-4">Add Funds</h3>
+          <h3 className="font-semibold text-lg text-gray-900 mb-4">Add Funds</h3>
           <DepositForm
             boxId={addFundsModal.vaultId}
             allBoxes={boxes}
@@ -362,7 +393,7 @@ function VaultsPageInner() {
       {/* Lock modal */}
       {lockModal && (
         <ModalSheet onClose={() => setLockModal(null)}>
-          <h3 className="font-semibold text-lg mb-4">Lock Safe Deposit Box</h3>
+          <h3 className="font-semibold text-lg text-gray-900 mb-4">Lock Safe Deposit Box</h3>
           <LockForm
             boxId={lockModal.vaultId}
             boxBalance={getBox(lockModal.vaultId)?.balance ?? 0}
@@ -1589,6 +1620,171 @@ function UnlockRequestForm({
 }
 // ── Rename Box Form ───────────────────────────────────────
 
+// ── Change Protection Type (Sprint 15) ────────────────────
+
+type ProtectionOption = {
+  id: "SOFT" | "HARD" | "KEYHOLDER";
+  icon: string;
+  label: string;
+  desc: string;
+};
+
+const PROTECTION_OPTIONS: ProtectionOption[] = [
+  { id: "SOFT", icon: "🛡️", label: "Flexible", desc: "Unlock with a confirmation." },
+  { id: "HARD", icon: "🔒", label: "Fully locked", desc: "No withdrawals until you unlock." },
+  { id: "KEYHOLDER", icon: "👤", label: "Keyholder required", desc: "Someone you trust must approve." },
+];
+
+function warningFor(from: string, to: string): string {
+  if (to === "SOFT" && (from === "HARD" || from === "KEYHOLDER")) {
+    return "Switching to Flexible means you can access these funds without going through the unlock process. Your discipline protection will be removed.";
+  }
+  if (from === "SOFT" && to === "HARD") {
+    return "Switching to Fully Locked means you will need to unlock this box before accessing funds. The full balance will be locked immediately.";
+  }
+  if (to === "KEYHOLDER") {
+    return "Switching to Keyholder means a person you trust must approve any early access. The full balance will be locked immediately. You will need to assign a keyholder.";
+  }
+  if (from === "KEYHOLDER" && to === "HARD") {
+    return "Switching to Fully Locked means the keyholder will no longer be required for this box. You will need to self-unlock to access funds.";
+  }
+  return "This will change the protection on this box.";
+}
+
+function ChangeProtectionForm({
+  box,
+  onClose,
+  onSuccess,
+}: {
+  box: Box | null;
+  onClose: () => void;
+  onSuccess: (toastMessage?: string) => void;
+}) {
+  const [selected, setSelected] = useState<"SOFT" | "HARD" | "KEYHOLDER" | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!box) return null;
+
+  const current = box.lockType as "SOFT" | "HARD" | "KEYHOLDER";
+
+  async function handleConfirm() {
+    if (!box || !selected) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/boxes/${box.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "changeProtectionType", lockType: selected }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Failed to change protection.");
+      }
+      onSuccess(`Protection changed to ${PROTECTION_OPTIONS.find((o) => o.id === selected)?.label}.`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (confirmed && selected) {
+    return (
+      <div className="space-y-4">
+        <h3 className="font-semibold text-lg text-gray-900">
+          Change to {PROTECTION_OPTIONS.find((o) => o.id === selected)?.label}?
+        </h3>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 leading-snug">
+          {warningFor(current, selected)}
+        </div>
+        {selected === "KEYHOLDER" && (
+          <p className="text-xs text-gray-500">
+            You can assign a keyholder from the Keyholders page after this change.
+          </p>
+        )}
+        {error && <p className="text-sm text-rose-600">{error}</p>}
+        <div className="flex gap-3">
+          <button
+            onClick={() => {
+              setConfirmed(false);
+              setError("");
+            }}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? "Updating…" : "Confirm change"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <h3 className="font-semibold text-lg text-gray-900">Change protection type</h3>
+      <p className="text-xs text-gray-500">
+        {box.name} is currently {PROTECTION_OPTIONS.find((o) => o.id === current)?.label}.
+      </p>
+      <div className="space-y-2">
+        {PROTECTION_OPTIONS.map((opt) => {
+          const isCurrent = opt.id === current;
+          const isSelected = opt.id === selected;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => !isCurrent && setSelected(opt.id)}
+              disabled={isCurrent}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                isCurrent
+                  ? "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
+                  : isSelected
+                  ? "border-emerald-600 bg-emerald-50"
+                  : "border-gray-100 hover:border-gray-200"
+              }`}
+            >
+              <span>{opt.icon}</span>
+              <div className="flex-1">
+                <div className={`text-sm font-medium ${isSelected ? "text-emerald-700" : "text-gray-900"}`}>
+                  {opt.label}
+                  {isCurrent && (
+                    <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-500">
+                      current
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">{opt.desc}</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex gap-3">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
+          Cancel
+        </button>
+        <button
+          onClick={() => selected && setConfirmed(true)}
+          disabled={!selected}
+          className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function RenameBoxForm({
   box,
   onClose,
@@ -1753,10 +1949,17 @@ function CloseBoxFlow({
   box,
   onClose,
   onSuccess,
+  onGoTransfer,
+  onGoUnlock,
+  onGoKeyholders,
 }: {
   box: Box | null;
   onClose: () => void;
   onSuccess: (toastMessage?: string) => void;
+  // Sprint 15 — tappable blocker CTAs
+  onGoTransfer?: (boxId: string) => void;
+  onGoUnlock?: (boxId: string) => void;
+  onGoKeyholders?: () => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [blockers, setBlockers] = useState<string[] | null>(null);
@@ -1811,11 +2014,36 @@ function CloseBoxFlow({
   const availableLocal = (box.balance - box.lockedAmount) / 100;
 
   if (blockers) {
-    const msgMap: Record<string, string> = {
-      locked_amount: "Withdraw or transfer the available funds, then unlock the rest.",
-      status_locked: "Submit an unlock request and wait for it to resolve.",
-      pending_unlock: "Clear the pending unlock request first.",
-      active_keyholder: "Remove the keyholder from this box before closing.",
+    // Sprint 15 — tappable blocker rows with chevrons, routing to the right flow.
+    type BlockerCta = {
+      label: string;
+      onClick: (() => void) | null; // null = no direct action (text-only)
+    };
+    const ctaFor = (b: string): BlockerCta => {
+      switch (b) {
+        case "locked_amount":
+          return {
+            label: "Withdraw or transfer the available funds",
+            onClick: onGoTransfer && box ? () => onGoTransfer(box.id) : null,
+          };
+        case "status_locked":
+          return {
+            label: "Submit an unlock request and wait for it to resolve",
+            onClick: onGoUnlock && box ? () => onGoUnlock(box.id) : null,
+          };
+        case "pending_unlock":
+          return {
+            label: "Clear the pending unlock request first",
+            onClick: null,
+          };
+        case "active_keyholder":
+          return {
+            label: "Remove the keyholder from this box before closing",
+            onClick: onGoKeyholders ?? null,
+          };
+        default:
+          return { label: b, onClick: null };
+      }
     };
     return (
       <div className="space-y-4">
@@ -1828,11 +2056,29 @@ function CloseBoxFlow({
           </div>
         )}
         <div className="space-y-2">
-          {blockers.map((b) => (
-            <div key={b} className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-sm text-amber-800">
-              {msgMap[b] ?? b}
-            </div>
-          ))}
+          {blockers.map((b) => {
+            const cta = ctaFor(b);
+            if (cta.onClick) {
+              return (
+                <button
+                  key={b}
+                  onClick={cta.onClick}
+                  className="w-full bg-amber-50 border-l-4 border-amber-400 rounded-xl px-3 py-3 text-sm text-amber-900 flex items-center gap-2 hover:bg-amber-100 transition-colors text-left"
+                >
+                  <span className="flex-1">{cta.label}</span>
+                  <span className="text-amber-500 text-lg shrink-0">›</span>
+                </button>
+              );
+            }
+            return (
+              <div
+                key={b}
+                className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-sm text-amber-800"
+              >
+                {cta.label}
+              </div>
+            );
+          })}
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">

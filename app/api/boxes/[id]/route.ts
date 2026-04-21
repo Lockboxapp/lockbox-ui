@@ -99,6 +99,58 @@ export async function PATCH(
       );
     }
 
+    // Sprint 15 — change protection type (SOFT <-> HARD <-> KEYHOLDER).
+    // UPGRADE to HARD/KEYHOLDER auto-locks immediately (status=LOCKED, lockedAmount=balance).
+    // DOWNGRADE to SOFT leaves existing status/lockedAmount intact so the user can
+    // self-unlock via the normal SOFT confirmation flow.
+    if (action === "changeProtectionType") {
+      if (box.isWallet) {
+        return NextResponse.json({ error: "Wallet's protection cannot be changed." }, { status: 400 });
+      }
+      const target: string | undefined = lockType;
+      const valid = ["SOFT", "HARD", "KEYHOLDER"];
+      if (!target || !valid.includes(target)) {
+        return NextResponse.json(
+          { error: "lockType must be SOFT, HARD, or KEYHOLDER." },
+          { status: 400 },
+        );
+      }
+      if (target === box.lockType) {
+        return NextResponse.json(
+          { error: "Box already uses this protection type." },
+          { status: 400 },
+        );
+      }
+
+      const upgradingToLocked = target === "HARD" || target === "KEYHOLDER";
+      const from = box.lockType;
+
+      const updated = await prisma.box.update({
+        where: { id },
+        data: {
+          lockType: target as "SOFT" | "HARD" | "KEYHOLDER",
+          ...(upgradingToLocked
+            ? {
+                status: BOX_STATUS.LOCKED,
+                lockedAmount: box.balance,
+              }
+            : {}),
+        },
+      });
+
+      await prisma.auditEvent.create({
+        data: {
+          actor: "USER",
+          actorId: session.user.id,
+          action: "PROTECTION_TYPE_CHANGED",
+          targetId: id,
+          metadata: JSON.stringify({ from, to: target }),
+        },
+      });
+
+      return NextResponse.json(updated);
+    }
+
     // Sprint 7 — safety fallback: switch a KEYHOLDER box to SOFT (Flexible)
     // ONLY permitted when no active keyholder is attached to the box.
     // Preserves lockedAmount — user can then self-unlock via SOFT confirmation.

@@ -606,6 +606,19 @@ function ManageKeyholderModal({
   const [removing, setRemoving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [err, setErr] = useState("");
+  // Sprint 15 — per-box removal state
+  const [removingBoxId, setRemovingBoxId] = useState<string | null>(null);
+  const [confirmRemoveLastBoxId, setConfirmRemoveLastBoxId] = useState<string | null>(null);
+
+  async function refetchRelationships() {
+    try {
+      const r = await fetch("/api/keyholders");
+      const data = await r.json();
+      if (Array.isArray(data)) setRelationships(data);
+    } catch {
+      // swallow — stale state is better than broken UI here
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -618,6 +631,33 @@ function ManageKeyholderModal({
       })
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleRemoveBox(boxId: string) {
+    setRemovingBoxId(boxId);
+    setErr("");
+    try {
+      const res = await fetch(
+        `/api/keyholders/${relationshipId}/boxes/${boxId}`,
+        { method: "DELETE" },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setErr(data.error ?? "Failed to remove box from keyholder.");
+        setRemovingBoxId(null);
+        return;
+      }
+      if (data.relationshipRevoked) {
+        onRemoved();
+        return;
+      }
+      await refetchRelationships();
+      setConfirmRemoveLastBoxId(null);
+    } catch {
+      setErr("Request failed.");
+    } finally {
+      setRemovingBoxId(null);
+    }
+  }
 
   const target = relationships.find((r) => r.id === relationshipId);
 
@@ -701,11 +741,84 @@ function ManageKeyholderModal({
             </p>
 
             <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 mb-4">
-              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+              <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
                 Covers
+                {target.scopeType === "ALL" && (
+                  <span className="ml-2 normal-case text-[10px] tracking-normal text-gray-400">
+                    (all KEYHOLDER boxes)
+                  </span>
+                )}
               </div>
               {coveredBoxes.length === 0 ? (
                 <p className="text-sm text-gray-500">No active boxes.</p>
+              ) : target.scopeType === "SELECTED" ? (
+                <div className="space-y-1.5">
+                  {coveredBoxes.map((b) => {
+                    const isLastBox = coveredBoxes.length === 1;
+                    const confirmRemoval = confirmRemoveLastBoxId === b.id;
+                    return (
+                      <div
+                        key={b.id}
+                        className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-900">{b.name}</span>
+                          <span
+                            className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
+                              b.lockType === "HARD"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : b.lockType === "KEYHOLDER"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {b.lockType === "SOFT"
+                              ? "Flexible"
+                              : b.lockType === "HARD"
+                              ? "Fully locked"
+                              : "Keyholder"}
+                          </span>
+                        </div>
+                        {confirmRemoval ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setConfirmRemoveLastBoxId(null)}
+                              className="text-xs text-gray-500 px-2 py-1"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => handleRemoveBox(b.id)}
+                              disabled={removingBoxId === b.id}
+                              className="text-xs text-rose-700 font-medium bg-rose-50 border border-rose-200 rounded px-2 py-1 disabled:opacity-50"
+                            >
+                              {removingBoxId === b.id ? "Removing…" : "Remove anyway"}
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              isLastBox
+                                ? setConfirmRemoveLastBoxId(b.id)
+                                : handleRemoveBox(b.id)
+                            }
+                            disabled={removingBoxId === b.id}
+                            aria-label={`Remove ${b.name} from this keyholder`}
+                            className="h-6 w-6 rounded-full hover:bg-rose-50 text-rose-600 flex items-center justify-center text-sm disabled:opacity-50"
+                          >
+                            {removingBoxId === b.id ? "…" : "×"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {confirmRemoveLastBoxId && (
+                    <p className="text-xs text-amber-700 leading-snug pt-1">
+                      This is the only box this keyholder covers. Removing it will
+                      revoke the keyholder relationship entirely.
+                    </p>
+                  )}
+                </div>
               ) : (
                 <ul className="text-sm text-gray-800 space-y-0.5">
                   {coveredBoxes.map((b) => (
