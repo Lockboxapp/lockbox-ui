@@ -140,7 +140,7 @@ export async function PATCH(
         return NextResponse.json(
           {
             error: "Unlock this box before changing its protection type.",
-            code: "must_unlock_first",
+            code: "box_is_locked",
           },
           { status: 400 },
         );
@@ -163,7 +163,7 @@ export async function PATCH(
           return NextResponse.json(
             {
               error: "Remove your keyholder before changing protection type.",
-              code: "active_keyholder",
+              code: "active_keyholder_exists",
             },
             { status: 400 },
           );

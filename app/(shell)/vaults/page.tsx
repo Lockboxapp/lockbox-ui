@@ -1759,7 +1759,7 @@ function ChangeProtectionForm({
         {error && (
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-800 space-y-2">
             <p>{error.message}</p>
-            {error.code === "must_unlock_first" && onGoUnlock && box && (
+            {error.code === "box_is_locked" && onGoUnlock && box && (
               <button
                 type="button"
                 onClick={() => onGoUnlock(box.id)}
@@ -1768,13 +1768,13 @@ function ChangeProtectionForm({
                 Unlock this box →
               </button>
             )}
-            {error.code === "active_keyholder" && onGoKeyholders && (
+            {error.code === "active_keyholder_exists" && onGoKeyholders && (
               <button
                 type="button"
                 onClick={onGoKeyholders}
                 className="w-full py-2 rounded-lg bg-rose-600 text-white text-xs font-medium"
               >
-                Go to Keyholders →
+                Manage keyholders →
               </button>
             )}
           </div>
