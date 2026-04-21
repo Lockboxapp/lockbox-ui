@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 21, 2026 — Sprint 15 complete (CARD_SPEND, contrast, tappable blockers, transactions page, change protection, per-box keyholder scope).
+# Last updated: April 21, 2026 — Sprint 16 complete (final polish, settings cleanup, profile/help/my-boxes pages).
 # ============================================================
 
 ---
@@ -248,8 +248,17 @@ Convert to dollars only at the display layer. Never store floats for money.
 
 ### Transactions
   GET /api/transactions/list     <- paginated + filterable ledger (Sprint 15)
-                                    filters: boxId, type (deposit|withdraw|transfer|card_spend|all),
+                                    filters: boxId, type (deposit|withdraw|transfer|card_spend|lock|unlock|all),
                                     range (this_week|this_month|last_3_months|all), offset, limit (max 100)
+
+### User profile (Sprint 16)
+  GET   /api/user/profile        <- current user's name/email/timezone/createdAt
+  PATCH /api/user/profile        <- { name?, timezone? } — zod-validated
+
+### Feedback (Sprint 16)
+  POST /api/feedback             <- session-authed. Body: { subject, message, kind }
+                                    Sends Resend email to darian@lockboxfinance.com
+                                    with reply-to set to user's email.
 
 ### Unlock / Transfer Requests
   POST /api/unlock-requests                          <- create UNLOCK or TRANSFER request
@@ -491,7 +500,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 15, April 21, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 16, April 21, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -587,6 +596,20 @@ BUILT AND DEPLOYED:
   Per-box keyholder scope editing — Manage modal shows SELECTED-scope boxes
     with × remove each; last-box removal shows "Remove anyway" confirmation
     and cascades to full relationship revoke via DELETE route.
+  Protected-display card cleanup — removed the redundant "All funds are
+    under enforcement." line so HARD/KEYHOLDER action buttons have full row
+    width and "Add funds" no longer wraps.
+  Settings cleanup — dead taps removed; Connect Bank marked "Coming soon";
+    dedicated /settings/profile, /settings/boxes, /settings/help pages; /settings
+    and the settings drawer mirror each other with real destinations only.
+  /settings/profile — editable name + timezone (auto-saves), read-only email,
+    member-since, Change password → /forgot-password, Delete account coming soon.
+  /settings/boxes — list + bottom sheet with deep-links to /vaults for each
+    action (rename / date / protection / close). No form duplication.
+  /settings/help — feedback + bug report forms emailing Darian via Resend,
+    how-LockBox-works accordion, mailto support link.
+  /vaults accepts ?action=<rename|date|protection|close> to auto-open the
+    matching modal, then clears the param from the URL.
 
 ---
 
@@ -726,6 +749,28 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 16 — Final Polish + Settings + Profile (Apr 21, commit 66b3962)
+  Removed "All funds are under enforcement." from HARD/KEYHOLDER vault cards.
+  Contrast pass: "From" label in TransferForm (text-gray-400 → text-gray-700);
+    signin/signup titles gained text-gray-900. All modal titles audited.
+  Settings drawer + /settings page rebuilt. Removed dead items
+    (Manage Budgets & Savings, Language). Connect Bank marked "Coming soon"
+    with disabled button. Renamed "Manage Accountability Partners" →
+    "Keyholders". Added Profile entry. Fixed routes: My boxes → /settings/boxes,
+    Help & Feedback → /settings/help.
+  /settings/profile + ProfileForm client — editable name + timezone via
+    PATCH /api/user/profile (zod-validated); read-only email + member since;
+    Change password → /forgot-password; Delete account coming soon.
+  /settings/help + HelpForms client — feedback form, bug report form (both
+    POST /api/feedback, which Resends darian@lockboxfinance.com with
+    replyTo=user), How LockBox works accordion (Wallet / Boxes / Keyholder /
+    Target date), mailto support.
+  /settings/boxes + BoxesSettingsList client — wallet header (read-only),
+    active boxes as tappable rows, bottom sheet with deep-links to
+    /vaults?box={id}&action=<rename|date|protection|close>. No form
+    duplication; vaults/page.tsx auto-opens the right modal and strips the
+    action param after use.
 
 Sprint 15 — UX Polish + Transactions + Protection Type (Apr 21, commit 6d3c2a6)
   CARD_SPEND added to TX constants (Transaction.type is String column; no
