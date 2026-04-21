@@ -52,6 +52,8 @@ function bucketToTypes(bucket: string | null): string[] | null {
       return ["LOCK"];
     case "unlock":
       return ["UNLOCK"];
+    case "protection":
+      return ["PROTECTION_TYPE_CHANGED"];
     default:
       return null;
   }

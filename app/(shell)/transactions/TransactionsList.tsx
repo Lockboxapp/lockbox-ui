@@ -7,7 +7,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownLeft, ArrowUpRight, ArrowRight, CreditCard, Lock, Unlock } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, ArrowRight, CreditCard, Lock, Unlock, Shield } from "lucide-react";
 
 export type BoxOption = {
   id: string;
@@ -32,7 +32,8 @@ type BucketFilter =
   | "transfer"
   | "card_spend"
   | "lock"
-  | "unlock";
+  | "unlock"
+  | "protection";
 type RangeFilter = "all" | "this_week" | "this_month" | "last_3_months";
 
 const PAGE_SIZE = 25;
@@ -64,6 +65,8 @@ function iconFor(type: string) {
       return <Lock className={`${cls} text-gray-700`} />;
     case "UNLOCK":
       return <Unlock className={`${cls} text-amber-600`} />;
+    case "PROTECTION_TYPE_CHANGED":
+      return <Shield className={`${cls} text-indigo-600`} />;
     default:
       return <ArrowRight className={`${cls} text-gray-500`} />;
   }
@@ -85,6 +88,8 @@ function bgFor(type: string) {
       return "bg-gray-100";
     case "UNLOCK":
       return "bg-amber-50";
+    case "PROTECTION_TYPE_CHANGED":
+      return "bg-indigo-50";
     default:
       return "bg-gray-50";
   }
@@ -94,6 +99,16 @@ function titleFor(tx: Tx): { title: string; subtitle: string | null } {
   if (tx.type === "CARD_SPEND") {
     const merchant = tx.description.replace(/^Card purchase — /, "") || "Card purchase";
     return { title: "Card purchase", subtitle: merchant };
+  }
+  if (tx.type === "PROTECTION_TYPE_CHANGED") {
+    // description format: "Protection type changed from <FROM> to <TO>"
+    const boxSubtitle = tx.box?.name ?? null;
+    return {
+      title: "Protection changed",
+      subtitle:
+        tx.description.replace(/^Protection type changed /, "").trim() ||
+        boxSubtitle,
+    };
   }
   const baseTitle: Record<string, string> = {
     DEPOSIT: "Deposit",
@@ -194,6 +209,7 @@ export default function TransactionsList({ boxes }: { boxes: BoxOption[] }) {
               <option value="card_spend">Card spend</option>
               <option value="lock">Locks</option>
               <option value="unlock">Unlocks</option>
+              <option value="protection">Protection changes</option>
             </select>
           </div>
           <div>
@@ -230,8 +246,12 @@ export default function TransactionsList({ boxes }: { boxes: BoxOption[] }) {
             const inflow = INFLOW_TYPES.has(tx.type);
             const { title, subtitle } = titleFor(tx);
             const amtDollars = Math.round(tx.amountCents / 100);
-            // LOCK/UNLOCK rows are event markers (amount=0) — skip the dollar figure.
-            const isEventRow = tx.type === "LOCK" || tx.type === "UNLOCK";
+            // Event rows (LOCK / UNLOCK / PROTECTION_TYPE_CHANGED) are state
+            // markers with amount=0 — skip the dollar figure.
+            const isEventRow =
+              tx.type === "LOCK" ||
+              tx.type === "UNLOCK" ||
+              tx.type === "PROTECTION_TYPE_CHANGED";
             const amtStr = `${inflow ? "+" : "−"}$${amtDollars.toLocaleString("en-US")}`;
             const dateStr = new Date(tx.postedAt).toLocaleString("en-US", {
               month: "short",

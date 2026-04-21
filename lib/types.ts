@@ -9,6 +9,9 @@ export const TX = {
   // Sprint 15 — distinct from WITHDRAW so card purchases get their own
   // icon + merchant display in the activity feed.
   CARD_SPEND: "CARD_SPEND",
+  // Sprint 16 hotfix — protection type change surfaces in activity feed alongside
+  // the existing AuditEvent. amount=0; description includes from → to.
+  PROTECTION_TYPE_CHANGED: "PROTECTION_TYPE_CHANGED",
 } as const;
 
 export type TransactionType = (typeof TX)[keyof typeof TX];

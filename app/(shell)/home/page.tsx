@@ -46,6 +46,8 @@ const TX_LABELS: Record<string, string> = {
   UNLOCK: "Unlocked funds",
   // Sprint 15 — CARD_SPEND rows include merchant via description field.
   CARD_SPEND: "Card purchase",
+  // Sprint 16 hotfix — protection type change as an activity-feed entry.
+  PROTECTION_TYPE_CHANGED: "Protection changed",
 };
 
 // ── Page ────────────────────────────────────────────────────────────────────
@@ -725,6 +727,12 @@ export default async function HomePage() {
           <div className="bg-white border border-gray-100 rounded-2xl shadow-sm overflow-hidden">
             {recentActivity.map((item, i) => {
               const isPositive = ["DEPOSIT", "TRANSFER_IN", "INCOME"].includes(item.type);
+              // Event rows (LOCK / UNLOCK / PROTECTION_TYPE_CHANGED) have amount=0 —
+              // the number would be meaningless. Skip it.
+              const isEventRow =
+                item.type === "LOCK" ||
+                item.type === "UNLOCK" ||
+                item.type === "PROTECTION_TYPE_CHANGED";
               const amtDollars = Math.round(item.amount / 100);
               const amtStr = `${isPositive ? "+" : "−"}$${amtDollars.toLocaleString("en-US")}`;
               return (
@@ -738,9 +746,11 @@ export default async function HomePage() {
                 >
                   <div className="text-sm text-gray-700 leading-snug">{item.label}</div>
                   <div className="flex items-center gap-2 ml-3 shrink-0">
-                    <span className={`text-sm font-semibold ${isPositive ? "text-emerald-600" : "text-gray-700"}`}>
-                      {amtStr}
-                    </span>
+                    {!isEventRow && (
+                      <span className={`text-sm font-semibold ${isPositive ? "text-emerald-600" : "text-gray-700"}`}>
+                        {amtStr}
+                      </span>
+                    )}
                     <span className="text-xs text-gray-400 whitespace-nowrap">
                       {new Date(item.postedAt).toLocaleDateString("en-US", {
                         month: "short",

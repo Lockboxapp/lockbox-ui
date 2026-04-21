@@ -103,6 +103,12 @@ export async function PATCH(
     // UPGRADE to HARD/KEYHOLDER auto-locks immediately (status=LOCKED, lockedAmount=balance).
     // DOWNGRADE to SOFT leaves existing status/lockedAmount intact so the user can
     // self-unlock via the normal SOFT confirmation flow.
+    // Sprint 16 hotfix — enforce two security rules board-approved:
+    //   (1) Cannot downgrade a LOCKED box. Must unlock first.
+    //   (2) Cannot change away from KEYHOLDER if an active keyholder exists.
+    //       Remove the keyholder first (separate 3-click friction path).
+    // Also writes a PROTECTION_TYPE_CHANGED Transaction row so the change
+    // surfaces in the activity feed, not just the audit log.
     if (action === "changeProtectionType") {
       if (box.isWallet) {
         return NextResponse.json({ error: "Wallet's protection cannot be changed." }, { status: 400 });
@@ -122,8 +128,49 @@ export async function PATCH(
         );
       }
 
-      const upgradingToLocked = target === "HARD" || target === "KEYHOLDER";
       const from = box.lockType;
+
+      // Rule 1 — downgrade requires the box to be unlocked first.
+      const isDowngrade =
+        (from === "KEYHOLDER" && target !== "KEYHOLDER") ||
+        (from === "HARD" && target === "SOFT");
+      const isStatusLocked =
+        box.status === BOX_STATUS.LOCKED || box.status === BOX_STATUS.UNLOCK_PENDING;
+      if (isDowngrade && isStatusLocked) {
+        return NextResponse.json(
+          {
+            error: "Unlock this box before changing its protection type.",
+            code: "must_unlock_first",
+          },
+          { status: 400 },
+        );
+      }
+
+      // Rule 2 — KEYHOLDER downgrade blocked while an active keyholder exists.
+      if (from === "KEYHOLDER" && target !== "KEYHOLDER") {
+        const activeKeyholder = await prisma.keyholderRelationship.findFirst({
+          where: {
+            userId: session.user.id,
+            status: "ACTIVE",
+            OR: [
+              { scopeType: "ALL" },
+              { scopeType: "SELECTED", boxes: { some: { boxId: id } } },
+            ],
+          },
+          select: { id: true },
+        });
+        if (activeKeyholder) {
+          return NextResponse.json(
+            {
+              error: "Remove your keyholder before changing protection type.",
+              code: "active_keyholder",
+            },
+            { status: 400 },
+          );
+        }
+      }
+
+      const upgradingToLocked = target === "HARD" || target === "KEYHOLDER";
 
       const updated = await prisma.box.update({
         where: { id },
@@ -145,6 +192,17 @@ export async function PATCH(
           action: "PROTECTION_TYPE_CHANGED",
           targetId: id,
           metadata: JSON.stringify({ from, to: target }),
+        },
+      });
+
+      // Sprint 16 hotfix — also write to the activity feed so the user sees it.
+      await prisma.transaction.create({
+        data: {
+          userId: session.user.id,
+          boxId: box.id,
+          type: "PROTECTION_TYPE_CHANGED",
+          amount: 0,
+          description: `Protection type changed from ${from} to ${target}`,
         },
       });
 

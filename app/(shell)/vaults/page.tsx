@@ -325,6 +325,14 @@ function VaultsPageInner() {
               }
               fetchBoxes();
             }}
+            onGoUnlock={(id) => {
+              setProtectionModal(null);
+              setUnlockModal({ vaultId: id });
+            }}
+            onGoKeyholders={() => {
+              setProtectionModal(null);
+              router.push("/keyholders");
+            }}
           />
         </ModalSheet>
       )}
@@ -1687,15 +1695,22 @@ function ChangeProtectionForm({
   box,
   onClose,
   onSuccess,
+  onGoUnlock,
+  onGoKeyholders,
 }: {
   box: Box | null;
   onClose: () => void;
   onSuccess: (toastMessage?: string) => void;
+  // Sprint 16 hotfix — CTA callbacks for blocked protection changes.
+  onGoUnlock?: (boxId: string) => void;
+  onGoKeyholders?: () => void;
 }) {
   const [selected, setSelected] = useState<"SOFT" | "HARD" | "KEYHOLDER" | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ message: string; code?: string } | null>(
+    null,
+  );
 
   if (!box) return null;
 
@@ -1704,7 +1719,7 @@ function ChangeProtectionForm({
   async function handleConfirm() {
     if (!box || !selected) return;
     setLoading(true);
-    setError("");
+    setError(null);
     try {
       const res = await fetch(`/api/boxes/${box.id}`, {
         method: "PATCH",
@@ -1713,11 +1728,15 @@ function ChangeProtectionForm({
       });
       if (!res.ok) {
         const d = await res.json();
-        throw new Error(d.error ?? "Failed to change protection.");
+        setError({
+          message: d.error ?? "Failed to change protection.",
+          code: d.code,
+        });
+        return;
       }
       onSuccess(`Protection changed to ${PROTECTION_OPTIONS.find((o) => o.id === selected)?.label}.`);
-    } catch (e: any) {
-      setError(e.message);
+    } catch {
+      setError({ message: "Something went wrong. Please try again." });
     } finally {
       setLoading(false);
     }
@@ -1737,12 +1756,34 @@ function ChangeProtectionForm({
             You can assign a keyholder from the Keyholders page after this change.
           </p>
         )}
-        {error && <p className="text-sm text-rose-600">{error}</p>}
+        {error && (
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-800 space-y-2">
+            <p>{error.message}</p>
+            {error.code === "must_unlock_first" && onGoUnlock && box && (
+              <button
+                type="button"
+                onClick={() => onGoUnlock(box.id)}
+                className="w-full py-2 rounded-lg bg-rose-600 text-white text-xs font-medium"
+              >
+                Unlock this box →
+              </button>
+            )}
+            {error.code === "active_keyholder" && onGoKeyholders && (
+              <button
+                type="button"
+                onClick={onGoKeyholders}
+                className="w-full py-2 rounded-lg bg-rose-600 text-white text-xs font-medium"
+              >
+                Go to Keyholders →
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex gap-3">
           <button
             onClick={() => {
               setConfirmed(false);
-              setError("");
+              setError(null);
             }}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600"
           >
@@ -1750,7 +1791,7 @@ function ChangeProtectionForm({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={loading}
+            disabled={loading || !!error}
             className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
           >
             {loading ? "Updating…" : "Confirm change"}
@@ -1800,7 +1841,9 @@ function ChangeProtectionForm({
           );
         })}
       </div>
-      {error && <p className="text-sm text-rose-600">{error}</p>}
+      {error && (
+        <p className="text-sm text-rose-600">{error.message}</p>
+      )}
       <div className="flex gap-3">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600">
           Cancel
