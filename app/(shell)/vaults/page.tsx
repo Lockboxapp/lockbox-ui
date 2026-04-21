@@ -79,6 +79,7 @@ function VaultsPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const boxParam = searchParams.get("box");
+  const actionParam = searchParams.get("action");
   const [highlightId, setHighlightId] = useState<string | null>(boxParam);
 
   // Fade out highlight after 2s (Fix 6 — temporary + obvious)
@@ -188,6 +189,37 @@ function VaultsPageInner() {
   useEffect(() => {
     fetchBoxes();
   }, [fetchBoxes]);
+
+  // Sprint 16 — deep-link: /vaults?box={id}&action=<rename|date|protection|close>
+  // opens the corresponding modal once boxes are loaded. Clears the action param
+  // from the URL on first use so refresh / back doesn't re-open.
+  useEffect(() => {
+    if (!actionParam || !boxParam || boxes.length === 0) return;
+    const target = boxes.find((b) => b.id === boxParam);
+    if (!target) return;
+    switch (actionParam) {
+      case "rename":
+        setRenameModal({ vaultId: boxParam });
+        break;
+      case "date":
+        if (target.lockType === "SOFT" && !target.isWallet) {
+          setDueDateModal({ vaultId: boxParam });
+        }
+        break;
+      case "protection":
+        if (!target.isWallet) {
+          setProtectionModal({ vaultId: boxParam });
+        }
+        break;
+      case "close":
+        if (!target.isWallet) {
+          setCloseModal({ vaultId: boxParam });
+        }
+        break;
+    }
+    router.replace(`/vaults?box=${boxParam}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionParam, boxParam, boxes.length]);
 
   const activeBoxes = boxes.filter((b) => !b.isClosed);
   const closedBoxes = boxes.filter((b) => b.isClosed);
@@ -2235,7 +2267,7 @@ function TransferForm({
   return (
     <div className="space-y-4">
       <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-3">
-        <div className="text-xs text-gray-400 mb-0.5">From</div>
+        <div className="text-xs font-medium text-gray-700 mb-0.5">From</div>
         <div className="font-semibold text-gray-900 text-sm">{fromBox?.name ?? "—"}</div>
         <div className="text-xs text-gray-500 mt-0.5">{currency((fromBox?.balance ?? 0) / 100)} available</div>
       </div>

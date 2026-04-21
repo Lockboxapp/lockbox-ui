@@ -357,11 +357,7 @@ export default function VaultsScreen({
                 {/* Actions */}
                 <div className="mt-3 flex items-center justify-between">
                   <div className="text-sm text-gray-600">
-                    {v.isFullyProtected ? (
-                      <span className="text-xs text-amber-700">
-                        All funds are under enforcement.
-                      </span>
-                    ) : (
+                    {v.isFullyProtected ? null : (
                       <>
                         Saved:{" "}
                         <span className="font-medium text-gray-900">

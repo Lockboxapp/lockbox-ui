@@ -146,21 +146,21 @@ export default function ShellLayout({
             <div className="flex-1 overflow-y-auto py-2">
               {[
                 {
-                  icon: "🔗",
-                  label: "Connect Bank",
-                  sub: "Not connected",
-                  href: null,
+                  icon: "👤",
+                  label: "Profile",
+                  sub: "Name, email, timezone",
+                  href: "/settings/profile",
                 },
                 {
                   icon: "📦",
                   label: "My boxes",
                   sub: "Rename, change protection, close",
-                  href: "/vaults",
+                  href: "/settings/boxes",
                 },
                 {
                   icon: "👥",
-                  label: "Manage Accountability Partners",
-                  sub: "Keyholders",
+                  label: "Keyholders",
+                  sub: "Manage accountability partners",
                   href: "/keyholders",
                 },
                 {
@@ -170,17 +170,17 @@ export default function ShellLayout({
                   href: "/rewards",
                 },
                 {
-                  icon: "💳",
-                  label: "Manage Budgets & Savings",
-                  sub: "Split: 50/30/20",
+                  icon: "🔗",
+                  label: "Connect Bank",
+                  sub: "Not yet available",
                   href: null,
+                  comingSoon: true,
                 },
-                { icon: "🌐", label: "Language", sub: "English", href: null },
                 {
                   icon: "❓",
                   label: "Help & Feedback",
-                  sub: "Report a bug, request a feature",
-                  href: null,
+                  sub: "Send feedback, report a bug, how it works",
+                  href: "/settings/help",
                 },
                 {
                   icon: "🔗",
@@ -192,7 +192,9 @@ export default function ShellLayout({
               ].map((item) => (
                 <button
                   key={item.label}
+                  disabled={(item as { comingSoon?: boolean }).comingSoon}
                   onClick={async () => {
+                    if ((item as { comingSoon?: boolean }).comingSoon) return;
                     if ((item as any).share) {
                       capture("share_link_tapped");
                       const shareData = {
@@ -216,16 +218,29 @@ export default function ShellLayout({
                       router.push(item.href);
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 text-left"
+                  className="w-full flex items-center gap-3 px-6 py-3.5 hover:bg-gray-50 disabled:hover:bg-transparent disabled:cursor-default text-left"
                 >
                   <span className="text-lg">{item.icon}</span>
                   <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div
+                      className={`text-sm font-medium ${
+                        (item as { comingSoon?: boolean }).comingSoon
+                          ? "text-gray-400"
+                          : "text-gray-900"
+                      }`}
+                    >
                       {item.label}
+                      {(item as { comingSoon?: boolean }).comingSoon && (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400 font-medium">
+                          Coming soon
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-gray-500">{item.sub}</div>
                   </div>
-                  <span className="text-gray-400 text-sm">›</span>
+                  {!(item as { comingSoon?: boolean }).comingSoon && (
+                    <span className="text-gray-400 text-sm">›</span>
+                  )}
                 </button>
               ))}
               <button
