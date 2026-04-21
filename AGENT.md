@@ -3,7 +3,7 @@
 # READ THIS ENTIRE FILE BEFORE WRITING ANY CODE.
 # This file is the single source of truth for any AI agent
 # working on this codebase, regardless of model or tool.
-# Last updated: April 20, 2026 — Sprint 12 complete (card simulation + decline logic).
+# Last updated: April 21, 2026 — Sprint 13 complete (transfer approval, target date, banker pace, timezone).
 # ============================================================
 
 ---
@@ -110,6 +110,7 @@ architectural decision made April 7, 2026. Do not revert to a monolith.
     isRestricted          Boolean   @default(false) // Sprint 9 — blocks sign-in
     restrictedAt          DateTime?                 // Sprint 9
     restrictedReason      String?                   // Sprint 9
+    timezone              String?                   // Sprint 13 — IANA TZ captured on signup; null = UTC fallback
     createdAt             DateTime  @default(now())
     updatedAt             DateTime  @updatedAt
   }
@@ -479,7 +480,7 @@ Tone: warm, direct, practical. Never preachy. Never generic when named is possib
 
 ---
 
-## SECTION 13 — WHAT IS BUILT (Sprint 12, April 20, 2026)
+## SECTION 13 — WHAT IS BUILT (Sprint 13, April 21, 2026)
 
 BUILT AND DEPLOYED:
   Authentication — signup, signin, OTP, forgot/reset password
@@ -524,6 +525,26 @@ BUILT AND DEPLOYED:
     declines are AuditEvent-only (CARD_DECLINED, metadata with merchant +
     attempted cents + wallet balance), no money moves, no Transaction, no
     activity-feed entry. Wallet-low warning on Card tab when balance < $20.
+  KEYHOLDER transfer approval — approval route branches on requestType,
+    atomic $transaction, idempotent via status pre-check, explicit FAILED
+    state + owner email on $transaction failure. Keyholder approval page
+    shows transfer vs unlock language (headline, detail rows, button labels,
+    success/denied copy). Pending TRANSFER requests surfaced in Today's
+    Actions on home.
+  "Target date" rename — no "due date" / "due in" / "Due today" anywhere in
+    UI (creation, settings, vault card, Priority Boxes, Banker, Today's
+    Actions, emails, keyholder pages, landing). Schema field lockUntil
+    unchanged (UI/copy only).
+  Overdue target date handling — toVaultShape adds daysRemaining + isOverdue;
+    overdue boxes always qualify for Priority with "Overdue" label; Banker
+    ladder has overdue branch; Today's Actions has overdue_box entry; past
+    dates render "Target date passed", never negatives.
+  Banker pace calculation — remainingCents / daysRemaining / 100 ceil'd;
+    handles all edge cases (daysLeft=0, overdue, fully funded, almost there,
+    null inputs). Copy: "Your [box] target is [date]. You need $X/day to
+    get there on time."
+  User.timezone captured on signup — Intl.DateTimeFormat().resolvedOptions();
+    null fallback for pre-Sprint-13 users.
 
 ---
 
@@ -663,6 +684,32 @@ Sprint 10 — Welcome Email Sequence (Apr 19, commit 8e3d53d)
   GET /api/waitlist/unsubscribe?token=<base64(id)> flips unsubscribed=true and
     returns plain HTML confirmation regardless of token validity.
   vercel.json crons block + CRON_SECRET placeholder in .env.local.
+
+Sprint 13 — Transfer Approval + Target Date + Banker Pace + Timezone (Apr 21, commit 59dc8b9)
+  Bug 1 (P0): GET /api/unlock-requests/[token] exposes requestType +
+    transferAmount + destinationBoxName. Approve route hardened — atomic
+    $transaction, idempotent (status pre-check), FAILED status +
+    sendTransferResult(outcome=FAILED) email to owner on transaction error,
+    sendTransferResult(outcome=APPROVED) on success. Keyholder approval page
+    branches on requestType everywhere (headline, detail rows, approval-text
+    box, button labels, success/denied states). Pending TRANSFER surfaces in
+    Today's Actions as "Waiting for your keyholder to approve your transfer
+    from [Box]".
+  Target date rename (no schema change): every "due date" instance replaced
+    with "target date" in UI/copy across home, vaults, VaultsScreen, create
+    form, lock modal, edit modal, keyholder pages, welcome email, landing
+    page. lockUntil field name unchanged.
+  Overdue handling: toVaultShape adds daysRemaining + isOverdue. scoredBoxes
+    on home qualifies overdue boxes always; urgency score +6 (highest);
+    "Overdue" label; "Target date passed" copy; Banker overdue branch;
+    Today's Actions overdue_box entry; underfunded bucket excludes overdue.
+  Banker pace: buildPaceMessage on home — Math.ceil(remainingCents /
+    daysLeft / 100) with null-safe branches for all edge cases; "$X/day"
+    copy on qualifying priority boxes.
+  User.timezone String?: migration add-user-timezone; signup page captures
+    Intl.DateTimeFormat().resolvedOptions().timeZone and POSTs it; /api/signup
+    zod schema accepts + persists. Null tolerated for existing users.
+  Vault card contrast: box name text-gray-900, subline text-gray-600.
 
 Sprint 12 — Card Simulation + Decline Logic (Apr 20, commit 1aa56eb)
   POST /api/card/simulate: all users (admin gate removed). Accepts
