@@ -275,8 +275,13 @@ function VaultsPageInner() {
           fetchBoxes();
         };
         if (!src) return null;
-        // HARD: transfer blocked — route to self-unlock
-        if (src.lockType === "HARD" && !src.isWallet) {
+        // Sprint 8/15 — status-first enforcement (AGENT.md Section 7 critical rule).
+        // UNLOCKED boxes allow direct transfer regardless of lockType. Only
+        // status-locked boxes route to the special flows.
+        const srcStatusLocked =
+          src.status === "LOCKED" || src.status === "UNLOCK_PENDING";
+        // HARD + status-locked: transfer blocked — route to self-unlock
+        if (srcStatusLocked && src.lockType === "HARD" && !src.isWallet) {
           return (
             <ModalSheet onClose={close}>
               <HardSelfUnlockForm
@@ -293,8 +298,8 @@ function VaultsPageInner() {
             </ModalSheet>
           );
         }
-        // KEYHOLDER: transfer request flow
-        if (src.lockType === "KEYHOLDER" && !src.isWallet) {
+        // KEYHOLDER + status-locked: transfer request flow
+        if (srcStatusLocked && src.lockType === "KEYHOLDER" && !src.isWallet) {
           return (
             <ModalSheet onClose={close}>
               <TransferRequestForm
