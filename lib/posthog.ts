@@ -8,6 +8,7 @@ import posthog from "posthog-js";
 export function initPostHog() {
   if (typeof window === "undefined") return;
   if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return;
+  if (process.env.NODE_ENV !== "production") return;
   if ((posthog as unknown as { __loaded?: boolean }).__loaded) return;
 
   posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
@@ -20,6 +21,7 @@ export function initPostHog() {
 export function capture(event: string, properties?: Record<string, unknown>) {
   if (typeof window === "undefined") return;
   if (!process.env.NEXT_PUBLIC_POSTHOG_KEY) return;
+  if (process.env.NODE_ENV !== "production") return;
   try {
     posthog.capture(event, properties);
   } catch {

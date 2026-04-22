@@ -15,8 +15,17 @@
 
 import { PostHog } from "posthog-node";
 
-export function getServerPosthog() {
-  return new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY ?? "", {
+export function getServerPosthog(): PostHog {
+  if (
+    process.env.NODE_ENV !== "production" ||
+    !process.env.NEXT_PUBLIC_POSTHOG_KEY
+  ) {
+    return {
+      capture: () => {},
+      shutdown: async () => {},
+    } as unknown as PostHog;
+  }
+  return new PostHog(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
     // Honor host override from env (US ingest is the working endpoint;
     // app.posthog.com is the dashboard, not the ingest URL).
     host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com",
