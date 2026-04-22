@@ -1,6 +1,7 @@
 import * as React from "react";
 import "./globals.css";
 import ClientProviders from "@/components/ClientProviders";
+import { PostHogInit } from "@/components/PostHogInit";
 
 export default function RootLayout({
   children,
@@ -17,6 +18,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <PostHogInit />
         <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
