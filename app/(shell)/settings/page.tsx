@@ -61,9 +61,9 @@ export default function SettingsPage() {
     },
     {
       icon: Link2,
-      label: "Connect Bank",
-      sub: "Not yet available",
-      comingSoon: true,
+      label: "Connected banks",
+      sub: "Plaid (read-only) — balance + bill scan",
+      href: "/settings/banks",
     },
     {
       icon: HelpCircle,
