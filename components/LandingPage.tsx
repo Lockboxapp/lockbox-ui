@@ -916,6 +916,8 @@ const bodyHtml = `
   </a>
   <div class="nav-cta">
     <!-- Sprint 9 — waitlist-only landing page; nav CTAs removed intentionally. -->
+    <!-- Sprint 17 (phase2 only) — quick sign-in link for Plaid sandbox testing on the preview branch. Do NOT merge to main. -->
+    <a href="/signin" class="nav-link">Sign in</a>
   </div>
 </nav>
 
