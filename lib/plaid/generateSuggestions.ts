@@ -2,8 +2,11 @@
 // lib/plaid/generateSuggestions.ts
 // Sprint 17 (Phase 2) — turn detected RecurringBill rows into
 // box suggestions ranked by amount (largest first).
+// Sprint 17 extended hotfix — credit-card and loan payment patterns
+// always recommend HARD; canonical naming via suggestedNameFor.
 // ============================================================
 // Recommendation rules:
+//  - Payment patterns (credit cards, mortgages, auto/student loans) → HARD
 //  - Bills ≥ $500/mo (rent / mortgage / housing) → HARD
 //  - Bills ≥ $80/mo and matching utility/insurance keywords → HARD
 //  - Everything else (subscriptions, smaller services) → SOFT
@@ -12,6 +15,7 @@
 // ============================================================
 
 import { prisma } from "@/lib/db";
+import { suggestedNameFor } from "@/lib/plaid/detectRecurring";
 
 export type BoxSuggestion = {
   recurringBillId: string;
@@ -39,18 +43,24 @@ const HARD_KEYWORDS = [
   "state farm",
 ];
 
-function suggestedNameFor(merchant: string): string {
-  const m = merchant.trim();
-  // Pull first significant word for the box label.
-  const word =
-    m.split(/[\s—–-]+/).find((w) => w.length >= 3) ?? m;
-  return `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()} Box`;
-}
+// Canonical group keys produced by detectRecurring's classifyPaymentPattern.
+const PAYMENT_PATTERN_DISPLAYS = new Set([
+  "Visa Payment",
+  "Mastercard Payment",
+  "Amex Payment",
+  "Discover Payment",
+  "Credit Card Payment",
+  "Mortgage Payment",
+  "Car Payment",
+  "Student Loan Payment",
+  "Loan Payment",
+]);
 
 function classify(
   merchant: string,
   amountCents: number,
 ): "SOFT" | "HARD" {
+  if (PAYMENT_PATTERN_DISPLAYS.has(merchant)) return "HARD";
   const lower = merchant.toLowerCase();
   if (amountCents >= 500_00) return "HARD";
   if (HARD_KEYWORDS.some((k) => lower.includes(k)) && amountCents >= 80_00) {

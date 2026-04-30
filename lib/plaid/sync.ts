@@ -1,8 +1,9 @@
 // ============================================================
 // lib/plaid/sync.ts
 // Sprint 17 (Phase 2) — pulls last 90 days of transactions from
-// Plaid for a single user, dedupes by plaidId, and upserts into
-// PlaidTransaction. Server-only.
+// Plaid, dedupes by plaidId, and upserts into PlaidTransaction.
+// Sprint 17 extended hotfix — multi-bank: each PlaidItem is synced
+// individually; per-user sync iterates all items.
 // ============================================================
 // Sign convention: Plaid uses positive = debit, negative = credit.
 // We store `amount` in CENTS preserving that sign.
@@ -18,10 +19,12 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-export async function syncPlaidTransactionsForUser(
-  userId: string,
-): Promise<{ newCount: number; totalFetched: number }> {
-  const item = await prisma.plaidItem.findUnique({ where: { userId } });
+// Sync a single Plaid item (one bank connection).
+async function syncOnePlaidItem(itemId: string): Promise<{
+  newCount: number;
+  totalFetched: number;
+}> {
+  const item = await prisma.plaidItem.findUnique({ where: { id: itemId } });
   if (!item) return { newCount: 0, totalFetched: 0 };
 
   const accessToken = decrypt(item.accessToken);
@@ -31,7 +34,6 @@ export async function syncPlaidTransactionsForUser(
   const start = new Date();
   start.setDate(start.getDate() - WINDOW_DAYS);
 
-  // Plaid /transactions/get is paginated — page through everything in window.
   let offset = 0;
   const pageSize = 250;
   let totalAvailable = Infinity;
@@ -80,7 +82,7 @@ export async function syncPlaidTransactionsForUser(
     const result = await prisma.plaidTransaction.upsert({
       where: { plaidId: t.transaction_id },
       create: {
-        userId,
+        userId: item.userId,
         plaidId: t.transaction_id,
         merchant,
         amount: amountCents,
@@ -99,3 +101,25 @@ export async function syncPlaidTransactionsForUser(
 
   return { newCount, totalFetched: collected.length };
 }
+
+// Sync every PlaidItem the user has connected.
+export async function syncPlaidTransactionsForUser(userId: string): Promise<{
+  newCount: number;
+  totalFetched: number;
+  itemsSynced: number;
+}> {
+  const items = await prisma.plaidItem.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  let newCount = 0;
+  let totalFetched = 0;
+  for (const item of items) {
+    const r = await syncOnePlaidItem(item.id);
+    newCount += r.newCount;
+    totalFetched += r.totalFetched;
+  }
+  return { newCount, totalFetched, itemsSynced: items.length };
+}
+
+export { syncOnePlaidItem };

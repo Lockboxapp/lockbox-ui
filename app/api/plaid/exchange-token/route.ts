@@ -2,8 +2,11 @@
 // app/api/plaid/exchange-token/route.ts
 // POST — exchange Plaid Link's public_token for an access_token,
 // encrypt it, and persist a PlaidItem for the signed-in user.
-// One PlaidItem per user (unique on userId) — re-linking replaces.
-// Sprint 17 (Phase 2 — phase2 branch only).
+// Sprint 17 extended hotfix — multi-bank: each successful link
+// creates an additional PlaidItem. The first becomes primary;
+// subsequent links default to non-primary unless the user explicitly
+// promotes them via /api/plaid/set-primary. Re-linking the same
+// institution updates the existing record (matched on plaid itemId).
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -58,20 +61,33 @@ export async function POST(req: NextRequest) {
 
     const encrypted = encrypt(accessToken);
 
-    await prisma.plaidItem.upsert({
+    // Multi-bank: was this user's first connection?
+    const existingCount = await prisma.plaidItem.count({
       where: { userId: session.user.id },
-      create: {
-        userId: session.user.id,
-        accessToken: encrypted,
-        itemId,
-        institution,
-      },
-      update: {
-        accessToken: encrypted,
-        itemId,
-        institution,
-      },
     });
+    const isFirst = existingCount === 0;
+
+    // If the same Plaid item already exists for this user (re-link),
+    // update it; otherwise create a new row.
+    const existing = await prisma.plaidItem.findFirst({
+      where: { userId: session.user.id, itemId },
+    });
+    if (existing) {
+      await prisma.plaidItem.update({
+        where: { id: existing.id },
+        data: { accessToken: encrypted, institution },
+      });
+    } else {
+      await prisma.plaidItem.create({
+        data: {
+          userId: session.user.id,
+          accessToken: encrypted,
+          itemId,
+          institution,
+          isPrimary: isFirst, // first wins; later links must opt in
+        },
+      });
+    }
 
     return NextResponse.json({ success: true, institution });
   } catch (err) {

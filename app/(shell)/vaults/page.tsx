@@ -80,7 +80,12 @@ function VaultsPageInner() {
   const searchParams = useSearchParams();
   const boxParam = searchParams.get("box");
   const actionParam = searchParams.get("action");
+  const sourceParam = searchParams.get("source");
   const [highlightId, setHighlightId] = useState<string | null>(boxParam);
+  // Sprint 17 extended hotfix — banner shown after a successful
+  // "Add from external" deposit; clarifies that real bank transfers
+  // require BaaS.
+  const [externalDepositToast, setExternalDepositToast] = useState(false);
 
   // Fade out highlight after 2s (Fix 6 — temporary + obvious)
   useEffect(() => {
@@ -193,8 +198,24 @@ function VaultsPageInner() {
   // Sprint 16 — deep-link: /vaults?box={id}&action=<rename|date|protection|close>
   // opens the corresponding modal once boxes are loaded. Clears the action param
   // from the URL on first use so refresh / back doesn't re-open.
+  // Sprint 17 extended hotfix — additional path:
+  //   /vaults?action=addFunds[&source=external]  → opens Add Funds on the Wallet
+  //   used by ConnectedBankBalance's "Add to LockBox" button on home.
   useEffect(() => {
-    if (!actionParam || !boxParam || boxes.length === 0) return;
+    if (!actionParam || boxes.length === 0) return;
+
+    // Wallet-targeted Add Funds (no boxParam required).
+    if (actionParam === "addFunds") {
+      const wallet = boxes.find((b) => b.isWallet);
+      if (wallet) {
+        setAddFundsModal({ vaultId: wallet.id });
+        // The Add Funds modal honors `source` from URL; we keep it on the URL
+        // until the modal closes so source pre-selection works on first paint.
+        return;
+      }
+    }
+
+    if (!boxParam) return;
     const target = boxes.find((b) => b.id === boxParam);
     if (!target) return;
     switch (actionParam) {
@@ -416,18 +437,60 @@ function VaultsPageInner() {
 
       {/* Deposit modal */}
       {addFundsModal && (
-        <ModalSheet onClose={() => setAddFundsModal(null)}>
+        <ModalSheet
+          onClose={() => {
+            setAddFundsModal(null);
+            // Strip ?action=&source= from the URL so refresh / back doesn't re-open.
+            if (actionParam === "addFunds") {
+              router.replace("/vaults");
+            }
+          }}
+        >
           <h3 className="font-semibold text-lg text-gray-900 mb-4">Add Funds</h3>
           <DepositForm
             boxId={addFundsModal.vaultId}
             allBoxes={boxes}
-            onClose={() => setAddFundsModal(null)}
-            onSuccess={() => {
+            defaultSource={
+              sourceParam === "external"
+                ? "external"
+                : sourceParam === "wallet"
+                  ? "wallet"
+                  : null
+            }
+            onClose={() => {
               setAddFundsModal(null);
+              if (actionParam === "addFunds") router.replace("/vaults");
+            }}
+            onSuccess={(usedSource) => {
+              setAddFundsModal(null);
+              if (actionParam === "addFunds") router.replace("/vaults");
+              if (usedSource === "external") setExternalDepositToast(true);
               fetchBoxes();
             }}
           />
         </ModalSheet>
+      )}
+
+      {/* Sprint 17 extended hotfix — external-deposit clarification banner */}
+      {externalDepositToast && (
+        <div className="fixed inset-x-0 bottom-20 z-50 px-4">
+          <div className="max-w-md mx-auto bg-emerald-700 text-white rounded-2xl p-4 shadow-2xl flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">Added to your Wallet.</div>
+              <div className="text-xs opacity-80 mt-0.5">
+                Real bank transfers will be available when LockBox launches with
+                live banking.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExternalDepositToast(false)}
+              className="text-xs underline opacity-90"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Lock modal */}
@@ -781,11 +844,13 @@ function DepositForm({
   allBoxes,
   onClose,
   onSuccess,
+  defaultSource,
 }: {
   boxId: string;
   allBoxes: Box[];
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (usedSource: "wallet" | "external") => void;
+  defaultSource?: "wallet" | "external" | null;
 }) {
   // Sprint 7 — source selection step first. Wallet internal allocation vs fresh external deposit.
   type Source = "wallet" | "external";
@@ -795,7 +860,9 @@ function DepositForm({
   // If target IS the Wallet, only external deposit makes sense
   const targetIsWallet = !!targetBox?.isWallet;
 
-  const [source, setSource] = useState<Source | null>(targetIsWallet ? "external" : null);
+  const [source, setSource] = useState<Source | null>(
+    defaultSource ?? (targetIsWallet ? "external" : null),
+  );
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -832,7 +899,7 @@ function DepositForm({
         const d = await res.json();
         throw new Error(d.error ?? "Request failed");
       }
-      onSuccess();
+      onSuccess(source!);
     } catch (e: any) {
       setError(e.message);
     } finally {

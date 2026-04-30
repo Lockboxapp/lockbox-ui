@@ -12,6 +12,7 @@ import {
   PLAID_PRODUCTS,
   PLAID_COUNTRY_CODES,
 } from "@/lib/plaid/client";
+import { DepositoryAccountSubtype } from "plaid";
 
 export async function POST() {
   try {
@@ -21,12 +22,26 @@ export async function POST() {
     }
 
     const plaid = getPlaidClient();
+    // Sprint 17 extended hotfix — restrict the Plaid Link UI to
+    // depository accounts only (checking, savings, money market).
+    // Credit cards, mortgages, CDs, investments don't appear in the
+    // institution selector. Server-side enforcement; cannot be bypassed
+    // from the client.
     const res = await plaid.linkTokenCreate({
       user: { client_user_id: session.user.id },
       client_name: "LockBox",
       products: PLAID_PRODUCTS,
       country_codes: PLAID_COUNTRY_CODES,
       language: "en",
+      account_filters: {
+        depository: {
+          account_subtypes: [
+            DepositoryAccountSubtype.Checking,
+            DepositoryAccountSubtype.Savings,
+            DepositoryAccountSubtype.MoneyMarket,
+          ],
+        },
+      },
     });
 
     return NextResponse.json({ linkToken: res.data.link_token });

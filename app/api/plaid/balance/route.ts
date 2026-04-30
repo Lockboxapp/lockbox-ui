@@ -1,8 +1,9 @@
 // ============================================================
 // app/api/plaid/balance/route.ts
 // GET — current bank balance for the signed-in user from Plaid.
-// Returns the highest-balance depository account (typically checking).
-// Sprint 17 (Phase 2 — phase2 branch only).
+// Reads the user's primary PlaidItem and returns the highest-balance
+// depository account on it. Sprint 17 extended hotfix: depository-only
+// filter applied as a server-side guard (link-token already restricts).
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -19,9 +20,14 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const item = await prisma.plaidItem.findUnique({
-      where: { userId: session.user.id },
-    });
+    const item =
+      (await prisma.plaidItem.findFirst({
+        where: { userId: session.user.id, isPrimary: true },
+      })) ??
+      (await prisma.plaidItem.findFirst({
+        where: { userId: session.user.id },
+        orderBy: { createdAt: "asc" },
+      }));
     if (!item) {
       return NextResponse.json({ connected: false });
     }
@@ -32,7 +38,7 @@ export async function GET() {
       access_token: accessToken,
     });
 
-    // Pick the highest-available-balance depository account.
+    // Server-side guard: only consider depository accounts.
     const accounts = balRes.data.accounts.filter(
       (a) => a.type === "depository",
     );
@@ -41,11 +47,12 @@ export async function GET() {
         (b.balances.available ?? b.balances.current ?? 0) -
         (a.balances.available ?? a.balances.current ?? 0),
     );
-    const account = ranked[0] ?? balRes.data.accounts[0];
+    const account = ranked[0];
 
     if (!account) {
       return NextResponse.json({
         connected: true,
+        plaidItemId: item.id,
         institution: item.institution,
         balanceCents: null,
         accountName: null,
@@ -56,6 +63,7 @@ export async function GET() {
       account.balances.available ?? account.balances.current ?? 0;
     return NextResponse.json({
       connected: true,
+      plaidItemId: item.id,
       institution: item.institution,
       accountName: account.name ?? account.official_name ?? "Account",
       balanceCents: Math.round(dollars * 100),

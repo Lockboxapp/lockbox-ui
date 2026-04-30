@@ -100,7 +100,8 @@ model User {
   timezone              String?
 
   // Sprint 17 (Phase 2) — Plaid integration
-  plaidItem         PlaidItem?
+  // Sprint 17 extended hotfix — multi-bank: PlaidItem is now 1..N per user.
+  plaidItems        PlaidItem[]
   plaidTransactions PlaidTransaction[]
   recurringBills    RecurringBill[]
 }
@@ -433,15 +434,19 @@ model WaitlistEntry {
 
 model PlaidItem {
   id          String   @id @default(cuid())
-  userId      String   @unique
+  userId      String
   user        User     @relation(fields: [userId], references: [id])
   accessToken String // encrypted at rest using ENCRYPTION_KEY
   itemId      String
   institution String
+  // Sprint 17 extended hotfix — multi-bank: only one item per user is primary at a time;
+  // home screen ConnectedBankBalance reads from the primary item.
+  isPrimary   Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([userId])
+  @@index([userId, isPrimary])
 }
 
 model PlaidTransaction {
