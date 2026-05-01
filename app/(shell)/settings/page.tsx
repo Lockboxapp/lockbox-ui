@@ -2,7 +2,8 @@
 // app/(shell)/settings/page.tsx
 // Settings root — dedicated pages per area, no silent dead taps.
 // Sprint 16: removed Manage Budgets & Savings + Language (never built);
-// marked Connect Bank as "Coming soon"; added Profile, My Boxes, Help.
+// added Profile, My Boxes, Help.
+// Sprint 17 (phase2): Connect Bank routes to /settings/banks.
 // ============================================================
 
 "use client";
@@ -27,7 +28,6 @@ type Item = {
   href?: string;
   onClick?: () => void;
   danger?: boolean;
-  comingSoon?: boolean;
 };
 
 export default function SettingsPage() {
@@ -61,7 +61,7 @@ export default function SettingsPage() {
     },
     {
       icon: Link2,
-      label: "Connected banks",
+      label: "Connect Bank",
       sub: "Plaid (read-only) — balance + bill scan",
       href: "/settings/banks",
     },
@@ -81,7 +81,6 @@ export default function SettingsPage() {
   ];
 
   function handleClick(item: Item) {
-    if (item.comingSoon) return;
     if (item.href) {
       router.push(item.href);
       return;
@@ -113,8 +112,7 @@ export default function SettingsPage() {
             <button
               key={item.label}
               onClick={() => handleClick(item)}
-              disabled={item.comingSoon}
-              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-gray-50 disabled:hover:bg-transparent disabled:cursor-default transition-colors text-left"
+              className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl hover:bg-gray-50 transition-colors text-left"
             >
               <div
                 className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${item.danger ? "bg-rose-50" : "bg-gray-100"}`}
@@ -126,25 +124,14 @@ export default function SettingsPage() {
               <div className="flex-1 min-w-0">
                 <div
                   className={`text-sm font-medium ${
-                    item.danger
-                      ? "text-rose-600"
-                      : item.comingSoon
-                      ? "text-gray-400"
-                      : "text-gray-900"
+                    item.danger ? "text-rose-600" : "text-gray-900"
                   }`}
                 >
                   {item.label}
-                  {item.comingSoon && (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-400 font-medium">
-                      Coming soon
-                    </span>
-                  )}
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">{item.sub}</div>
               </div>
-              {!item.comingSoon && (
-                <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
-              )}
+              <ChevronRight className="h-4 w-4 text-gray-400 shrink-0" />
             </button>
           );
         })}
