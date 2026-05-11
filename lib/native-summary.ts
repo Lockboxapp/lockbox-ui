@@ -66,17 +66,17 @@ export function findWallet(boxes: BoxRow[]): BoxRow | null {
 /**
  * Money figures expressed the same way the web home dashboard treats them.
  *
- *   protectedCents  — sum of `balance` across all non-wallet, non-closed
- *                     boxes. This matches the web's "Protected in boxes"
- *                     figure on the home dashboard. AGENT.md §16 #15 calls
- *                     for `sum(lockedAmount)`, but in practice the web
- *                     renders `sum(balance)` on non-wallet boxes — the
- *                     `lockedAmount` column drifts because the deposit
- *                     route only increments `balance`. The native app
- *                     mirrors what the web actually shows.
+ *   protectedCents  — sum of `balance` across non-wallet, non-closed
+ *                     boxes whose status is LOCKED or UNLOCK_PENDING.
+ *                     Matches the web's "Protected in boxes" calc.
+ *                     AGENT.md §16 #15 calls for `sum(lockedAmount)`,
+ *                     but in practice `lockedAmount` drifts because
+ *                     `/api/boxes/[id]/deposit` only increments
+ *                     `balance` — so the web filters by lock status
+ *                     and sums balance instead. We mirror that.
  *   walletCents     — wallet balance
- *   totalCents      — walletCents + protectedCents (equivalently:
- *                     wallet + sum of non-wallet balances)
+ *   totalCents      — wallet + sum of non-wallet balances (every
+ *                     non-closed box, regardless of lock state)
  *   availableCents  — wallet + sum(balance - lockedAmount) for non-wallet
  *
  *  `loadUserBoxes` already filters `isClosed: false`, so the input here
@@ -86,9 +86,12 @@ export function computeMoneyFigures(boxes: BoxRow[]) {
   const wallet = findWallet(boxes);
   const nonWallet = boxes.filter((b) => !b.isWallet);
 
-  const protectedCents = nonWallet.reduce((s, b) => s + b.balance, 0);
+  const protectedCents = nonWallet
+    .filter((b) => b.status === 'LOCKED' || b.status === 'UNLOCK_PENDING')
+    .reduce((s, b) => s + b.balance, 0);
   const walletCents = wallet?.balance ?? 0;
-  const totalCents = walletCents + protectedCents;
+  const totalCents =
+    walletCents + nonWallet.reduce((s, b) => s + b.balance, 0);
   const availableCents =
     walletCents +
     nonWallet.reduce((s, b) => s + Math.max(0, b.balance - b.lockedAmount), 0);
