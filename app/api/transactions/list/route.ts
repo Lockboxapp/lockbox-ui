@@ -11,9 +11,8 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -61,8 +60,9 @@ function bucketToTypes(bucket: string | null): string[] | null {
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    // Sprint 2 (native): unified auth resolver — cookie or Bearer.
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
     const types = bucketToTypes(bucket);
     const since = rangeToDate(range);
 
-    const where: Record<string, unknown> = { userId: session.user.id };
+    const where: Record<string, unknown> = { userId: userId };
     if (boxId) where.boxId = boxId;
     if (types) where.type = { in: types };
     if (since) where.postedAt = { gte: since };

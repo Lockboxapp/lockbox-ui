@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db";
 import Link from "next/link";
 import BankerCarousel from "./BankerCarousel";
 import PendingAcceptanceRow from "./PendingAcceptanceRow";
+import ConnectedBankBalance from "@/components/ConnectedBankBalance";
 
 export const dynamic = "force-dynamic";
 
@@ -561,6 +562,9 @@ export default async function HomePage() {
           </div>
         )}
       </div>
+
+      {/* Sprint 17 (Phase 2) — Connected bank balance (Plaid, read-only). */}
+      <ConnectedBankBalance />
 
       {/* ── 3. Banker Insight (Sprint 14 — carousel) ── */}
       <BankerCarousel messages={bankerMessages} />

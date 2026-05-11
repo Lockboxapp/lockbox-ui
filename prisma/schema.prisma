@@ -98,6 +98,12 @@ model User {
   // Sprint 13 — IANA timezone captured on signup (e.g. "America/New_York")
   // Null for users created before this sprint; fall back to UTC on read.
   timezone              String?
+
+  // Sprint 17 (Phase 2) — Plaid integration
+  // Sprint 17 extended hotfix — multi-bank: PlaidItem is now 1..N per user.
+  plaidItems        PlaidItem[]
+  plaidTransactions PlaidTransaction[]
+  recurringBills    RecurringBill[]
 }
 
 model Account {
@@ -416,6 +422,60 @@ model WaitlistEntry {
   unsubscribed Boolean   @default(false)
 
   @@index([email])
+}
+
+// ------------------------------------------------------------
+// 7. PLAID INTEGRATION (Sprint 17 — Phase 2)
+// ------------------------------------------------------------
+// Read-only bank connection used to surface real balances, scan recent
+// transactions, detect recurring bills, and seed intelligent box
+// suggestions. LockBox does NOT move money via Plaid.
+// Access tokens are encrypted at rest with AES-256-GCM via lib/encryption.
+
+model PlaidItem {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  accessToken String // encrypted at rest using ENCRYPTION_KEY
+  itemId      String
+  institution String
+  // Sprint 17 extended hotfix — multi-bank: only one item per user is primary at a time;
+  // home screen ConnectedBankBalance reads from the primary item.
+  isPrimary   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, isPrimary])
+}
+
+model PlaidTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  plaidId     String   @unique
+  merchant    String?
+  amount      Int // cents, positive = debit, negative = credit
+  category    String?
+  date        DateTime
+  isRecurring Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([userId, date])
+}
+
+model RecurringBill {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  merchant      String
+  averageAmount Int // cents
+  frequency     String // monthly | weekly | annual
+  typicalDay    Int? // day of month it usually hits
+  boxId         String? // linked box if user accepted the suggestion
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
 }
 
 // Password reset tokens

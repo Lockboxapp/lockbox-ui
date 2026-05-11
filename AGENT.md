@@ -920,5 +920,17 @@ proceeding. Do not guess. Do not assume.
 
 ---
 
+## Phase 2 Branch Strategy
+
+- All Phase 2 development (Plaid, Stripe Treasury, real money) happens on the `phase2` branch
+- `main` is always v1 — live at lockboxfinance.com, untouched by Phase 2 work
+- `phase2` only merges into `main` with explicit approval from Darian
+- v1 is permanently tagged as `v1.0.0` in GitHub — always restorable
+- Individual Phase 2 features use `phase2/feature-name` branches, merged into `phase2`
+- Vercel automatically creates a preview URL for the `phase2` branch for safe testing
+- Never push Phase 2 environment variables to the Production environment in Vercel
+
+---
+
 AGENT.md — LockBox | Maintained by Darian Garrett, Founder
 Do not remove, abbreviate, or summarize this file. It is the project memory.
