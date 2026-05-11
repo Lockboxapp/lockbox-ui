@@ -2,27 +2,34 @@
 // app/api/user/profile/route.ts
 // GET  — return the signed-in user's profile (Sprint 16)
 // PATCH — update display name and/or IANA timezone
+//
+// Sprint 2 (native): auth via getRequestUserId so both the
+// NextAuth session cookie (web) and Bearer header (mobile)
+// resolve correctly. The GET response also exposes mobile-
+// facing counts (boxes, keyholders, connected banks) and a
+// `subscription` block — additive only, the existing `user`
+// payload that the web app consumes is unchanged.
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { z } from "zod";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 const patchSchema = z.object({
   name: z.string().trim().min(1).max(80).optional().nullable(),
   timezone: z.string().trim().max(64).optional().nullable(),
 });
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: {
         id: true,
         name: true,
@@ -34,7 +41,35 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
-    return NextResponse.json({ user });
+
+    // Mobile-facing aggregates. Counts only — no nested data leakage.
+    // We do not yet have a real subscription model (no Stripe wired),
+    // so the subscription block is hardcoded for now. Update once
+    // billing lands.
+    const [boxCount, keyholdersCount, connectedBanksCount] = await Promise.all([
+      prisma.box.count({
+        where: { userId, isWallet: false, isClosed: false },
+      }),
+      prisma.keyholderRelationship.count({
+        where: { userId, status: "ACTIVE" },
+      }),
+      prisma.plaidItem.count({ where: { userId } }),
+    ]);
+
+    return NextResponse.json({
+      user,
+      subscription: {
+        plan: "Free",
+        priceCents: 0,
+        renewsAt: null as string | null,
+        status: "active" as const,
+      },
+      counts: {
+        boxCount,
+        keyholdersCount,
+        connectedBanksCount,
+      },
+    });
   } catch (err) {
     console.error("[GET /api/user/profile]", err);
     return NextResponse.json(
@@ -46,8 +81,8 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -71,7 +106,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const updated = await prisma.user.update({
-      where: { id: session.user.id },
+      where: { id: userId },
       data,
       select: {
         id: true,

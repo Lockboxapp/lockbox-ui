@@ -16,16 +16,17 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 const TRANSFERABLE_STATUSES = ["CREATED", "FUNDING", "UNLOCKED"];
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    // Sprint 2 (native): auth via getRequestUserId — supports both
+    // the NextAuth session cookie (web) and Bearer header (mobile).
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Ownership check
-    if (fromBox.userId !== session.user.id || toBox.userId !== session.user.id) {
+    if (fromBox.userId !== userId || toBox.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
       }),
       prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: fromBoxId,
           type: "TRANSFER_OUT",
           amount: amountInCents,
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest) {
       }),
       prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: toBoxId,
           type: "TRANSFER_IN",
           amount: amountInCents,

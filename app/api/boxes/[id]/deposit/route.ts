@@ -7,21 +7,19 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { simulateSandboxDeposit } from "@/lib/unit";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-
   try {
     const { id } = await params;
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    // Sprint 2 (native): unified auth resolver — cookie or Bearer.
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -31,7 +29,7 @@ export async function POST(
       return NextResponse.json({ error: "Box not found" }, { status: 404 });
     }
 
-    if (box.userId !== session.user.id) {
+    if (box.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -56,7 +54,7 @@ export async function POST(
 
       await prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: box.id,
           type: "DEPOSIT",
           amount: amountInCents,
@@ -79,7 +77,7 @@ export async function POST(
     // Sandbox fallback — no Unit account yet, update DB only
     await prisma.transaction.create({
       data: {
-        userId: session.user.id,
+        userId: userId,
         boxId: box.id,
         type: "DEPOSIT",
         amount: amountInCents,

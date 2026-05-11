@@ -5,8 +5,6 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS } from "@/lib/types";
 import {
@@ -14,26 +12,30 @@ import {
   getServerCustomerToken,
 } from "@/lib/unit";
 import { getServerPosthog } from "@/lib/posthog-server";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 // ------------------------------------------------------------
 // GET — return all boxes for the authenticated user
+// Sprint 2 (native): auth resolved via getRequestUserId so this
+// route works for both the NextAuth session cookie (web) and the
+// Authorization: Bearer header (mobile).
 // ------------------------------------------------------------
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Sprint 4 — lazy-backfill Wallet for existing users who signed up before the feature
     const walletExists = await prisma.box.findFirst({
-      where: { userId: session.user.id, isWallet: true },
+      where: { userId, isWallet: true },
       select: { id: true },
     });
     if (!walletExists) {
       await prisma.box.create({
         data: {
-          userId: session.user.id,
+          userId,
           name: "Wallet",
           status: "CREATED",
           lockType: "SOFT",
@@ -50,7 +52,7 @@ export async function GET(req: NextRequest) {
 
     const boxes = await prisma.box.findMany({
       where: {
-        userId: session.user.id,
+        userId,
         ...(closedOnly ? { isClosed: true } : includeClosed ? {} : { isClosed: false }),
       },
       include: {
@@ -78,14 +80,14 @@ export async function GET(req: NextRequest) {
 // ------------------------------------------------------------
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // Fetch user including Unit customer ID
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: { id: true, unitCustomerId: true },
     });
 
@@ -125,7 +127,7 @@ export async function POST(req: NextRequest) {
         status: autoLock ? BOX_STATUS.LOCKED : BOX_STATUS.CREATED,
         balance: initialDepositCents,
         lockedAmount: autoLock ? initialDepositCents : 0,
-        userId: session.user.id,
+        userId: userId,
         isWallet: false, // Wallet is only created via signup or lazy-backfill
       },
     });
@@ -134,7 +136,7 @@ export async function POST(req: NextRequest) {
     if (initialDepositCents > 0) {
       await prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: box.id,
           type: "DEPOSIT",
           amount: initialDepositCents,
@@ -154,7 +156,7 @@ export async function POST(req: NextRequest) {
           tags: {
             boxId: box.id,
             boxName: box.name,
-            userId: session.user.id,
+            userId: userId,
           },
         });
 
@@ -175,7 +177,7 @@ export async function POST(req: NextRequest) {
     if (resolvedLockType === "KEYHOLDER" && keyholderRelationshipId) {
       try {
         const rel = await prisma.keyholderRelationship.findFirst({
-          where: { id: keyholderRelationshipId, userId: session.user.id },
+          where: { id: keyholderRelationshipId, userId: userId },
         });
         if (rel) {
           await prisma.keyholderRelationshipBox.create({
@@ -190,7 +192,7 @@ export async function POST(req: NextRequest) {
 
     const ph = getServerPosthog();
     ph.capture({
-      distinctId: session.user.id,
+      distinctId: userId,
       event: "box_created",
       properties: { lockType: resolvedLockType },
     });
