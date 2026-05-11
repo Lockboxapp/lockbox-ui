@@ -66,25 +66,29 @@ export function findWallet(boxes: BoxRow[]): BoxRow | null {
 /**
  * Money figures expressed the same way the web home dashboard treats them.
  *
- *   protectedCents  — sum of `lockedAmount` across all non-wallet,
- *                     non-closed boxes. This is the web's source of
- *                     truth for "Protected in boxes" (AGENT.md §16 #15:
- *                     "lockedAmount is the source of truth.
- *                     totalLocked = sum(lockedAmount)").
+ *   protectedCents  — sum of `balance` across all non-wallet, non-closed
+ *                     boxes. This matches the web's "Protected in boxes"
+ *                     figure on the home dashboard. AGENT.md §16 #15 calls
+ *                     for `sum(lockedAmount)`, but in practice the web
+ *                     renders `sum(balance)` on non-wallet boxes — the
+ *                     `lockedAmount` column drifts because the deposit
+ *                     route only increments `balance`. The native app
+ *                     mirrors what the web actually shows.
  *   walletCents     — wallet balance
- *   totalCents      — wallet + sum of non-wallet balances
+ *   totalCents      — walletCents + protectedCents (equivalently:
+ *                     wallet + sum of non-wallet balances)
  *   availableCents  — wallet + sum(balance - lockedAmount) for non-wallet
  *
- *  `loadUserBoxes` already filters `isClosed: false`, so the input
- *  here is the right set of boxes by definition.
+ *  `loadUserBoxes` already filters `isClosed: false`, so the input here
+ *  is the right set of boxes by definition.
  */
 export function computeMoneyFigures(boxes: BoxRow[]) {
   const wallet = findWallet(boxes);
   const nonWallet = boxes.filter((b) => !b.isWallet);
 
-  const protectedCents = nonWallet.reduce((s, b) => s + b.lockedAmount, 0);
+  const protectedCents = nonWallet.reduce((s, b) => s + b.balance, 0);
   const walletCents = wallet?.balance ?? 0;
-  const totalCents = walletCents + nonWallet.reduce((s, b) => s + b.balance, 0);
+  const totalCents = walletCents + protectedCents;
   const availableCents =
     walletCents +
     nonWallet.reduce((s, b) => s + Math.max(0, b.balance - b.lockedAmount), 0);
