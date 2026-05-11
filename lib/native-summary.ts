@@ -64,11 +64,19 @@ export function findWallet(boxes: BoxRow[]): BoxRow | null {
 }
 
 /**
- * Money figures expressed the same way the home dashboard treats them:
- *   protectedCents  — sum of lockedAmount across non-wallet active boxes
+ * Money figures expressed the same way the web home dashboard treats them.
+ *
+ *   protectedCents  — sum of `lockedAmount` across all non-wallet,
+ *                     non-closed boxes. This is the web's source of
+ *                     truth for "Protected in boxes" (AGENT.md §16 #15:
+ *                     "lockedAmount is the source of truth.
+ *                     totalLocked = sum(lockedAmount)").
  *   walletCents     — wallet balance
  *   totalCents      — wallet + sum of non-wallet balances
  *   availableCents  — wallet + sum(balance - lockedAmount) for non-wallet
+ *
+ *  `loadUserBoxes` already filters `isClosed: false`, so the input
+ *  here is the right set of boxes by definition.
  */
 export function computeMoneyFigures(boxes: BoxRow[]) {
   const wallet = findWallet(boxes);
