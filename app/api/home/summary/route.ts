@@ -17,6 +17,7 @@ import {
   computeBankerNudge,
   computeMoneyFigures,
   findNextBillBox,
+  findWallet,
   loadRecentActivity,
   loadUserBoxes,
 } from "@/lib/native-summary";
@@ -38,11 +39,13 @@ export async function GET(req: NextRequest) {
     const { protectedCents, walletCents, totalCents } = computeMoneyFigures(
       boxes,
     );
+    const wallet = findWallet(boxes);
     const nextBill = findNextBillBox(boxes);
     const bankerNudge = computeBankerNudge(boxes);
 
     return NextResponse.json({
       // All money values in cents.
+      walletBoxId: wallet?.id ?? null,
       totalLockedCents: protectedCents,
       walletBalanceCents: walletCents,
       // "Connected" = total under management. We do not return Plaid
