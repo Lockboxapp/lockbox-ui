@@ -18,6 +18,8 @@ import {
   computeMoneyFigures,
   findNextBillBox,
   findWallet,
+  loadPendingKeyholderRequestsCount,
+  loadPendingOwnerRequestsCount,
   loadRecentActivity,
   loadUserBoxes,
 } from "@/lib/native-summary";
@@ -31,9 +33,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const [boxes, recentActivity] = await Promise.all([
+    const [
+      boxes,
+      recentActivity,
+      pendingKeyholderRequestsCount,
+      pendingOwnerRequestsCount,
+    ] = await Promise.all([
       loadUserBoxes(userId),
       loadRecentActivity(userId, 5),
+      loadPendingKeyholderRequestsCount(userId),
+      loadPendingOwnerRequestsCount(userId),
     ]);
 
     const { protectedCents, walletCents, totalCents } = computeMoneyFigures(
@@ -65,6 +74,10 @@ export async function GET(req: NextRequest) {
         : null,
       bankerNudge,
       recentActivity,
+      // Sprint 3 — drives the Home banners on native for the
+      // keyholder-approval and owner-status flows.
+      pendingKeyholderRequestsCount,
+      pendingOwnerRequestsCount,
     });
   } catch (err) {
     console.error("[GET /api/home/summary]", err);
