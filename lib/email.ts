@@ -47,6 +47,35 @@ function boxListText(boxes: { name: string; targetAmount?: number | null }[]) {
 }
 
 // ------------------------------------------------------------
+// Admin notification — fired on new waitlist signups so Darian
+// gets a heads-up on every new lead. Wrap call sites in try/catch
+// so a delivery failure never blocks signup.
+// ------------------------------------------------------------
+export async function sendWaitlistAdminNotification({
+  email,
+  totalCount,
+  signedUpAt,
+}: {
+  email: string;
+  totalCount: number;
+  signedUpAt: Date;
+}) {
+  const body = `New signup on the waitlist.
+
+Email: ${email}
+Time: ${signedUpAt.toISOString()}
+
+Total waitlist count: ${totalCount.toLocaleString("en-US")}`;
+
+  await resend.emails.send({
+    from: FROM,
+    to: "darian@lockboxfinance.com",
+    subject: "New LockBox waitlist signup 🔒",
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
 // Email 1 — Day 1 — Immediate on waitlist signup
 // ------------------------------------------------------------
 export async function sendWaitlistEmail1({
