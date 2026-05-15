@@ -32,6 +32,45 @@ export async function GET(req: NextRequest) {
   }
 
   const now = new Date();
+
+  // Sprint 5 — expire any PENDING unlock requests whose 24h
+  // window has elapsed. Stamp a 24h cooldown so the owner can't
+  // immediately re-request to a different keyholder. No email
+  // per board decision.
+  const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  const expiredRequests = await prisma.unlockRequest.findMany({
+    where: {
+      status: "PENDING",
+      expiresAt: { lte: now, not: null },
+    },
+    select: { id: true, boxId: true },
+  });
+  if (expiredRequests.length > 0) {
+    const cooldownUntil = new Date(now.getTime() + COOLDOWN_MS);
+    await prisma.$transaction([
+      prisma.unlockRequest.updateMany({
+        where: { id: { in: expiredRequests.map((r) => r.id) } },
+        data: {
+          status: "EXPIRED",
+          resolvedAt: now,
+          cooldownUntil,
+        },
+      }),
+      prisma.auditEvent.createMany({
+        data: expiredRequests.map((r) => ({
+          actor: "SYSTEM",
+          action: "REQUEST_EXPIRED",
+          targetId: r.id,
+          metadata: JSON.stringify({
+            boxId: r.boxId,
+            cooldownUntil: cooldownUntil.toISOString(),
+            source: "cron",
+          }),
+        })),
+      }),
+    ]);
+  }
+
   const expired = await prisma.box.findMany({
     where: {
       temporaryUnlockExpiresAt: { lte: now, not: null },
@@ -140,6 +179,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     checkedAt: now.toISOString(),
     expiredCount: expired.length,
+    expiredRequestsCount: expiredRequests.length,
     results,
   });
 }

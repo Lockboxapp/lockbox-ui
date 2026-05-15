@@ -9,10 +9,9 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendKeyholderRemovedByOwnerEmail } from "@/lib/email";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 export async function DELETE(
   req: NextRequest,
@@ -20,8 +19,8 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -37,7 +36,7 @@ export async function DELETE(
     if (!rel) {
       return NextResponse.json({ error: "Keyholder relationship not found" }, { status: 404 });
     }
-    if (rel.userId !== session.user.id) {
+    if (rel.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     if (rel.status === "REVOKED") {
@@ -56,17 +55,21 @@ export async function DELETE(
     await prisma.auditEvent.create({
       data: {
         actor: "USER",
-        actorId: session.user.id,
+        actorId: userId,
         action: "KEYHOLDER_REMOVED_BY_OWNER",
         targetId: rel.id,
         metadata: JSON.stringify({ keyholderEmail: rel.profile.email }),
       },
     });
 
-    // Compute affected box names for the notification.
-    let affected: string[] = [];
+    // Compute affected boxes for the email AND the response. Sprint 5
+    // surfaces them as `{id, name}[]` so the native UI can render
+    // them inline in the confirmation/result modal.
+    let affectedBoxes: { id: string; name: string }[] = [];
     if (rel.scopeType === "SELECTED") {
-      affected = rel.boxes.filter((b) => !b.box.isClosed).map((b) => b.box.name);
+      affectedBoxes = rel.boxes
+        .filter((b) => !b.box.isClosed)
+        .map((b) => ({ id: b.box.id, name: b.box.name }));
     } else {
       const allBoxes = await prisma.box.findMany({
         where: {
@@ -74,10 +77,11 @@ export async function DELETE(
           isClosed: false,
           lockType: "KEYHOLDER",
         },
-        select: { name: true },
+        select: { id: true, name: true },
       });
-      affected = allBoxes.map((b) => b.name);
+      affectedBoxes = allBoxes.map((b) => ({ id: b.id, name: b.name }));
     }
+    const affectedNames = affectedBoxes.map((b) => b.name);
 
     // Notify the keyholder (best-effort).
     try {
@@ -85,13 +89,18 @@ export async function DELETE(
         to: rel.profile.email,
         keyholderName: rel.profile.name,
         ownerName: rel.user.name ?? "Your LockBox user",
-        affectedBoxNames: affected,
+        affectedBoxNames: affectedNames,
       });
     } catch (err) {
       console.error("[keyholders/manage] removed email failed:", err);
     }
 
-    return NextResponse.json({ ok: true, affectedBoxCount: affected.length });
+    return NextResponse.json({
+      ok: true,
+      removedRelationshipId: rel.id,
+      affectedBoxCount: affectedBoxes.length,
+      affectedBoxes,
+    });
   } catch (err) {
     console.error("[DELETE /api/keyholders/manage/:id]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

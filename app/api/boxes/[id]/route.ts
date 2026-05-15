@@ -6,11 +6,10 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { BOX_STATUS } from "@/lib/types";
 import { getServerPosthog } from "@/lib/posthog-server";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 // ------------------------------------------------------------
 // GET — fetch a single box by id (must belong to authed user)
@@ -21,8 +20,8 @@ export async function GET(
 ) {
   const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -40,11 +39,43 @@ export async function GET(
     }
 
     // Ensure the box belongs to the requesting user
-    if (box.userId !== session.user.id) {
+    if (box.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    return NextResponse.json(box);
+    // Sprint 5 — include the last 20 transactions for this box so
+    // the native detail screen can render an activity feed without
+    // a second round-trip.
+    const transactions = await prisma.transaction.findMany({
+      where: { boxId: box.id },
+      orderBy: [{ postedAt: "desc" }, { id: "desc" }],
+      take: 20,
+      select: {
+        id: true,
+        type: true,
+        amount: true,
+        description: true,
+        postedAt: true,
+      },
+    });
+
+    // Sprint 4 — surface the computed temporary-unlock flag the
+    // boxes list already emits so this endpoint stays in sync.
+    const isTemporarilyUnlocked =
+      box.temporaryUnlockExpiresAt != null &&
+      box.temporaryUnlockExpiresAt.getTime() > Date.now();
+
+    return NextResponse.json({
+      ...box,
+      isTemporarilyUnlocked,
+      transactions: transactions.map((tx) => ({
+        id: tx.id,
+        type: tx.type,
+        amountCents: tx.amount,
+        description: tx.description ?? "",
+        postedAt: tx.postedAt.toISOString(),
+      })),
+    });
   } catch (error) {
     console.error("[GET /api/boxes/:id]", error);
     return NextResponse.json(
@@ -70,8 +101,8 @@ export async function PATCH(
 ) {
   const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -83,7 +114,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Box not found" }, { status: 404 });
     }
 
-    if (box.userId !== session.user.id) {
+    if (box.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -167,7 +198,7 @@ export async function PATCH(
       if (from === "KEYHOLDER" && target !== "KEYHOLDER") {
         const activeKeyholder = await prisma.keyholderRelationship.findFirst({
           where: {
-            userId: session.user.id,
+            userId: userId,
             status: "ACTIVE",
             OR: [
               { scopeType: "ALL" },
@@ -205,7 +236,7 @@ export async function PATCH(
       await prisma.auditEvent.create({
         data: {
           actor: "USER",
-          actorId: session.user.id,
+          actorId: userId,
           action: "PROTECTION_TYPE_CHANGED",
           targetId: id,
           metadata: JSON.stringify({ from, to: target }),
@@ -215,7 +246,7 @@ export async function PATCH(
       // Sprint 16 hotfix — also write to the activity feed so the user sees it.
       await prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: box.id,
           type: "PROTECTION_TYPE_CHANGED",
           amount: 0,
@@ -241,7 +272,7 @@ export async function PATCH(
       }
       const hasActive = await prisma.keyholderRelationship.findFirst({
         where: {
-          userId: session.user.id,
+          userId: userId,
           status: "ACTIVE",
           OR: [
             { scopeType: "ALL" },
@@ -263,7 +294,7 @@ export async function PATCH(
       await prisma.auditEvent.create({
         data: {
           actor: "USER",
-          actorId: session.user.id,
+          actorId: userId,
           action: "SWITCHED_TO_FLEXIBLE",
           targetId: id,
         },
@@ -343,7 +374,7 @@ export async function PATCH(
       // If KEYHOLDER and a relationship ID was provided, link it to this box
       if (resolvedLockType === "KEYHOLDER" && keyholderRelationshipId) {
         const rel = await prisma.keyholderRelationship.findFirst({
-          where: { id: keyholderRelationshipId, userId: session.user.id },
+          where: { id: keyholderRelationshipId, userId: userId },
         });
         if (rel) {
           await prisma.keyholderRelationshipBox.upsert({
@@ -361,7 +392,7 @@ export async function PATCH(
 
       const ph = getServerPosthog();
       ph.capture({
-        distinctId: session.user.id,
+        distinctId: userId,
         event: "box_locked",
         properties: { lockType: resolvedLockType },
       });
@@ -407,7 +438,7 @@ export async function PATCH(
       // Record the self-unlock action on the activity feed
       await prisma.transaction.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           boxId: box.id,
           type: "UNLOCK",
           amount: 0,
@@ -482,8 +513,8 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -495,7 +526,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Box not found" }, { status: 404 });
     }
 
-    if (box.userId !== session.user.id) {
+    if (box.userId !== userId) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -543,12 +574,12 @@ export async function DELETE(
 
     // Ensure the Wallet exists for sweep destination (defensive — lazy create)
     let wallet = await prisma.box.findFirst({
-      where: { userId: session.user.id, isWallet: true },
+      where: { userId: userId, isWallet: true },
     });
     if (!wallet) {
       wallet = await prisma.box.create({
         data: {
-          userId: session.user.id,
+          userId: userId,
           name: "Wallet",
           status: "CREATED",
           lockType: "SOFT",
@@ -573,14 +604,14 @@ export async function DELETE(
         await tx.transaction.createMany({
           data: [
             {
-              userId: session.user.id,
+              userId: userId,
               boxId: box.id,
               type: "TRANSFER_OUT",
               amount: available,
               description: `Box closed — swept to Wallet`,
             },
             {
-              userId: session.user.id,
+              userId: userId,
               boxId: wallet!.id,
               type: "TRANSFER_IN",
               amount: available,

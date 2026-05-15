@@ -296,16 +296,29 @@ model UnlockRequest {
   // User cannot re-request until this timestamp passes
   cooldownUntil DateTime?
 
+  // Sprint 5 — board decision: pending requests expire after 24
+  // hours if the keyholder hasn't acted. Set on create. The cron
+  // at /api/cron/relock transitions PENDING→EXPIRED when this
+  // timestamp passes and stamps a 24h cooldown.
+  expiresAt DateTime?
+
   requestedAt DateTime  @default(now())
   resolvedAt  DateTime? // set when keyholder approves or denies
 
   box Box @relation(fields: [boxId], references: [id])
+
+  // Sprint 5 — owner chooses one keyholder per request. Stored so
+  // we know who to notify and so audit logs can answer "which
+  // keyholder did they ask?" later. Nullable to keep historical
+  // rows valid.
+  keyholderRelationshipId String?
 
   updatedAt DateTime @updatedAt
 
   @@index([boxId])
   @@index([approvalToken])
   @@index([status])
+  @@index([expiresAt])
 }
 
 // ------------------------------------------------------------

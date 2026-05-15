@@ -10,24 +10,30 @@
 // ============================================================
 
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendKeyholderInvite } from "@/lib/email";
 import { getServerPosthog } from "@/lib/posthog-server";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
 // ── GET — list all keyholder relationships ──────────────────
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Sprint 5 — also include the SELECTED-scope box links so the
+    // native /keyholders screen can render "Affected boxes" inline.
     const relationships = await prisma.keyholderRelationship.findMany({
-      where: { userId: session.user.id },
-      include: { profile: true },
+      where: { userId },
+      include: {
+        profile: true,
+        boxes: {
+          include: { box: { select: { id: true, name: true, isClosed: true } } },
+        },
+      },
       orderBy: { createdAt: "desc" },
     });
 
@@ -45,8 +51,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -61,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     // Fetch user and all associated emails
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       include: { accounts: true },
     });
 
@@ -83,7 +89,7 @@ export async function POST(req: NextRequest) {
       await prisma.auditEvent.create({
         data: {
           actor: "USER",
-          actorId: session.user.id,
+          actorId: userId,
           action: "SELF_KEYHOLDER_BLOCKED",
           metadata: JSON.stringify({ attemptedEmail: normalizedEmail }),
         },
@@ -102,7 +108,7 @@ export async function POST(req: NextRequest) {
     const existingRelationship = existingProfile
       ? await prisma.keyholderRelationship.findFirst({
           where: {
-            userId: session.user.id,
+            userId: userId,
             profileId: existingProfile.id,
             status: { in: ["PENDING", "ACTIVE"] },
           },
@@ -140,7 +146,7 @@ export async function POST(req: NextRequest) {
         await prisma.auditEvent.create({
           data: {
             actor: "USER",
-            actorId: session.user.id,
+            actorId: userId,
             action: "KEYHOLDER_SCOPE_UPDATED",
             targetId: existingRelationship.id,
             metadata: JSON.stringify({ addedBoxIds: newBoxIds }),
@@ -165,7 +171,7 @@ export async function POST(req: NextRequest) {
           await sendKeyholderScopeUpdateEmail({
             to: existingProfile!.email,
             keyholderName: existingProfile!.name,
-            ownerName: session.user.name ?? session.user.email ?? "Your LockBox user",
+            ownerName: user.name ?? user.email ?? "Your LockBox user",
             allBoxes,
             newBoxes: newBoxesMeta.map((b) => ({ name: b.name })),
             relationshipId: existingRelationship.id,
@@ -206,7 +212,7 @@ export async function POST(req: NextRequest) {
     // Create relationship
     const relationship = await prisma.keyholderRelationship.create({
       data: {
-        userId: session.user.id,
+        userId: userId,
         profileId: profile.id,
         scopeType: scopeType === "SELECTED" ? "SELECTED" : "ALL",
         status: "PENDING",
@@ -229,7 +235,7 @@ export async function POST(req: NextRequest) {
     await sendKeyholderInvite({
       keyholderEmail: normalizedEmail,
       keyholderName: name ?? null,
-      ownerName: session.user.name ?? session.user.email,
+      ownerName: user.name ?? user.email,
       inviteToken: relationship.inviteToken,
       relationshipId: relationship.id,
     });
@@ -238,7 +244,7 @@ export async function POST(req: NextRequest) {
     await prisma.auditEvent.create({
       data: {
         actor: "USER",
-        actorId: session.user.id,
+        actorId: userId,
         action: "INVITE_SENT",
         targetId: relationship.id,
         metadata: JSON.stringify({
@@ -249,7 +255,7 @@ export async function POST(req: NextRequest) {
     });
 
     const ph = getServerPosthog();
-    ph.capture({ distinctId: session.user.id, event: "keyholder_invited" });
+    ph.capture({ distinctId: userId, event: "keyholder_invited" });
     await ph.shutdown();
 
     return NextResponse.json(
