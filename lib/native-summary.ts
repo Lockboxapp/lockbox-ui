@@ -218,6 +218,83 @@ export async function loadRecentActivity(userId: string, limit = 5) {
   }));
 }
 
+/**
+ * Number of UnlockRequests in status=PENDING that the current user
+ * (as keyholder) is expected to approve or deny. Drives the Home
+ * banner on native. Returns 0 when the user has no email or no
+ * KeyholderProfile row.
+ */
+export async function loadPendingKeyholderRequestsCount(
+  userId: string,
+): Promise<number> {
+  const me = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if (!me?.email) return 0;
+  const email = me.email.toLowerCase();
+
+  const profile = await prisma.keyholderProfile.findUnique({
+    where: { email },
+    select: {
+      relationships: {
+        where: { status: "ACTIVE" },
+        select: {
+          userId: true,
+          scopeType: true,
+          boxes: { select: { boxId: true } },
+        },
+      },
+    },
+  });
+  if (!profile || profile.relationships.length === 0) return 0;
+
+  const allOwnerIds = new Set<string>();
+  const selectedBoxIds = new Set<string>();
+  for (const rel of profile.relationships) {
+    if (rel.scopeType === "ALL") {
+      allOwnerIds.add(rel.userId);
+    } else {
+      for (const b of rel.boxes) selectedBoxIds.add(b.boxId);
+    }
+  }
+
+  if (allOwnerIds.size === 0 && selectedBoxIds.size === 0) return 0;
+
+  return prisma.unlockRequest.count({
+    where: {
+      status: "PENDING",
+      OR: [
+        ...(allOwnerIds.size > 0
+          ? [{ box: { userId: { in: Array.from(allOwnerIds) } } }]
+          : []),
+        ...(selectedBoxIds.size > 0
+          ? [{ boxId: { in: Array.from(selectedBoxIds) } }]
+          : []),
+      ],
+    },
+  });
+}
+
+/**
+ * Number of UnlockRequests the current user (as box owner) has
+ * outstanding — i.e. waiting on keyholder review. Drives the
+ * "you have requests pending approval" banner on native Home.
+ *
+ * PENDING_USER_ACCEPTANCE is included because the owner still has
+ * to act on those.
+ */
+export async function loadPendingOwnerRequestsCount(
+  userId: string,
+): Promise<number> {
+  return prisma.unlockRequest.count({
+    where: {
+      box: { userId },
+      status: { in: ["PENDING", "PENDING_USER_ACCEPTANCE"] },
+    },
+  });
+}
+
 /** Sum of DEPOSIT transactions in the last 30 days, in cents. */
 export async function loadIncomeLast30dCents(userId: string): Promise<number> {
   const since = new Date(Date.now() - 30 * DAY_MS);
