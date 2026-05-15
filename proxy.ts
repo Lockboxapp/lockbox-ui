@@ -21,6 +21,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!signin|signup|welcome|intent|onboard-signup|protect|lock|forgot-password|reset-password|keyholder|api/auth|api/signup|api/keyholders|api/unlock-requests|api/keyholder-auth|api/waitlist|api/home|api/boxes|api/transactions|api/banker|api/user|api/transfers|api/cron|_next|favicon.ico)(?!$).*)",
+    "/((?!signin|signup|welcome|intent|onboard-signup|protect|lock|forgot-password|reset-password|keyholder|api/auth|api/signup|api/keyholders|api/keyholder|api/owner|api/unlock-requests|api/keyholder-auth|api/waitlist|api/home|api/boxes|api/transactions|api/banker|api/user|api/transfers|api/cron|_next|favicon.ico)(?!$).*)",
   ],
 };
