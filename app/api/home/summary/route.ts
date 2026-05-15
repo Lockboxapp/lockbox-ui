@@ -17,6 +17,7 @@ import {
   computeBankerNudge,
   computeMoneyFigures,
   findNextBillBox,
+  findTemporarilyUnlockedBoxes,
   findWallet,
   loadPendingKeyholderRequestsCount,
   loadPendingOwnerRequestsCount,
@@ -78,6 +79,13 @@ export async function GET(req: NextRequest) {
       // keyholder-approval and owner-status flows.
       pendingKeyholderRequestsCount,
       pendingOwnerRequestsCount,
+      // Sprint 4 — boxes currently in an active 30-minute
+      // temporary unlock window. The Home screen renders a
+      // warning banner + countdown for each entry. The native
+      // client re-derives `secondsRemaining` once a second via
+      // setInterval; this server value just seeds the initial
+      // render after a fetch / refresh.
+      temporarilyUnlockedBoxes: findTemporarilyUnlockedBoxes(boxes),
     });
   } catch (err) {
     console.error("[GET /api/home/summary]", err);

@@ -26,6 +26,10 @@ export type BoxRow = {
   isClosed: boolean;
   status: string;
   lockType: "SOFT" | "HARD" | "KEYHOLDER";
+  // Sprint 4 — set when a keyholder approves an UNLOCK request.
+  // Null outside an active 30-minute temporary unlock window.
+  temporaryUnlockExpiresAt: Date | null;
+  originalLockType: "SOFT" | "HARD" | "KEYHOLDER" | null;
 };
 
 export type BankerNudge = {
@@ -52,10 +56,42 @@ export async function loadUserBoxes(userId: string): Promise<BoxRow[]> {
       isClosed: true,
       status: true,
       lockType: true,
+      temporaryUnlockExpiresAt: true,
+      originalLockType: true,
     },
     orderBy: { createdAt: "asc" },
   });
   return rows as BoxRow[];
+}
+
+/**
+ * Sprint 4 — boxes currently in an active 30-minute temporary
+ * unlock window. The native Home screen renders a warning banner
+ * + countdown for each entry.
+ */
+export function findTemporarilyUnlockedBoxes(boxes: BoxRow[]): Array<{
+  id: string;
+  name: string;
+  expiresAt: string;
+  secondsRemaining: number;
+}> {
+  const now = Date.now();
+  return boxes
+    .filter(
+      (b) =>
+        b.temporaryUnlockExpiresAt != null &&
+        b.temporaryUnlockExpiresAt.getTime() > now,
+    )
+    .map((b) => {
+      const expiresMs = b.temporaryUnlockExpiresAt!.getTime();
+      return {
+        id: b.id,
+        name: b.name,
+        expiresAt: b.temporaryUnlockExpiresAt!.toISOString(),
+        secondsRemaining: Math.max(0, Math.floor((expiresMs - now) / 1000)),
+      };
+    })
+    .sort((a, b) => a.secondsRemaining - b.secondsRemaining);
 }
 
 /** Wallet box for the user — lazy-backfilled by GET /api/boxes, so it should always exist. */

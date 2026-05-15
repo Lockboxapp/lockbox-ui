@@ -257,8 +257,18 @@ model Box {
   // Unit BaaS
   unitAccountId String? // Unit deposit account ID for this safe deposit box
 
+  // Sprint 4 — Auto-Relock Timer.
+  // When a keyholder approves an unlock on a KEYHOLDER box, we
+  // temporarily flip the box to SOFT so the owner can transact.
+  // `temporaryUnlockExpiresAt` is the server-stamped 30-minute
+  // window; `originalLockType` remembers what to relock back to.
+  // Both are null outside an active temporary unlock window.
+  temporaryUnlockExpiresAt DateTime?
+  originalLockType         LockType?
+
   @@index([userId])
   @@index([status])
+  @@index([temporaryUnlockExpiresAt])
 }
 
 // Keyholder — trusted person who must approve early unlock requests

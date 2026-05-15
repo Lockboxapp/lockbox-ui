@@ -65,7 +65,19 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    return NextResponse.json(boxes);
+    // Sprint 4 — surface a server-computed `isTemporarilyUnlocked`
+    // flag alongside the raw fields so the native client doesn't
+    // have to compute the boundary itself. We compute against
+    // `Date.now()` on the server at response time; clients will
+    // re-evaluate via their own countdown for sub-second freshness.
+    const responseNow = Date.now();
+    const responseBoxes = boxes.map((b) => ({
+      ...b,
+      isTemporarilyUnlocked:
+        b.temporaryUnlockExpiresAt != null &&
+        b.temporaryUnlockExpiresAt.getTime() > responseNow,
+    }));
+    return NextResponse.json(responseBoxes);
   } catch (error) {
     console.error("[GET /api/boxes]", error);
     return NextResponse.json(

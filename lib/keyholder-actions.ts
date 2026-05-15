@@ -354,7 +354,19 @@ export async function approveUnlockRequest(
       );
     }
   } else {
-    // Full UNLOCK — release everything.
+    // Full UNLOCK — release everything, then start a 30-minute
+    // temporary unlock window (Sprint 4). The box flips to
+    // status=UNLOCKED so funds can be moved; we also remember
+    // the box's protection type in `originalLockType` and
+    // temporarily flip `lockType` to SOFT so downstream code
+    // that gates on lockType (UI badges, keyholder-only paths)
+    // doesn't accidentally trigger during the window. The cron
+    // job at /api/cron/relock reverses this at expiry.
+    const TEMPORARY_UNLOCK_MS = 30 * 60 * 1000;
+    const temporaryUnlockExpiresAt = new Date(
+      Date.now() + TEMPORARY_UNLOCK_MS,
+    );
+    const originalLockType = unlockRequest.box.lockType;
     await prisma.$transaction([
       prisma.unlockRequest.update({
         where: { id: unlockRequest.id },
@@ -362,7 +374,13 @@ export async function approveUnlockRequest(
       }),
       prisma.box.update({
         where: { id: unlockRequest.boxId },
-        data: { status: BOX_STATUS.UNLOCKED, lockedAmount: 0 },
+        data: {
+          status: BOX_STATUS.UNLOCKED,
+          lockedAmount: 0,
+          temporaryUnlockExpiresAt,
+          originalLockType,
+          lockType: "SOFT",
+        },
       }),
     ]);
   }

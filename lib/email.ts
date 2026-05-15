@@ -47,6 +47,39 @@ function boxListText(boxes: { name: string; targetAmount?: number | null }[]) {
 }
 
 // ------------------------------------------------------------
+// Box relock notice — fired by the auto-relock cron when a
+// temporary unlock window expires. The cron wraps the call in
+// try/catch so a Resend failure can never unwind the relock.
+// ------------------------------------------------------------
+export async function sendBoxRelockNotice({
+  to,
+  ownerName,
+  boxName,
+}: {
+  to: string;
+  ownerName: string | null;
+  boxName: string;
+}) {
+  const greeting = ownerName ? `Hi ${ownerName.split(/\s+/)[0]},` : "Hi,";
+  const body = `${greeting}
+
+Your 30-minute unlock window for ${boxName} has expired.
+
+Any remaining funds have been automatically relocked.
+
+If you still need access, submit a new unlock request through the app.
+
+— LockBox`;
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `Your unlock window has expired — ${boxName} relocked`,
+    text: body,
+  });
+}
+
+// ------------------------------------------------------------
 // Admin notification — fired on new waitlist signups so Darian
 // gets a heads-up on every new lead. Wrap call sites in try/catch
 // so a delivery failure never blocks signup.

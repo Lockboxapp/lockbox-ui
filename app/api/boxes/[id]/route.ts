@@ -113,6 +113,23 @@ export async function PATCH(
       if (box.isWallet) {
         return NextResponse.json({ error: "Wallet's protection cannot be changed." }, { status: 400 });
       }
+      // Sprint 4 — block protection-type changes during an active
+      // temporary unlock window. The owner has 30 minutes to use
+      // the box as-is; the cron will relock it to its original
+      // type. Allowing a swap mid-window would race the cron and
+      // corrupt `originalLockType`.
+      if (
+        box.temporaryUnlockExpiresAt &&
+        box.temporaryUnlockExpiresAt > new Date()
+      ) {
+        return NextResponse.json(
+          {
+            error: "Cannot change protection type during a temporary unlock window.",
+            code: "temporary_unlock_active",
+          },
+          { status: 409 },
+        );
+      }
       const target: string | undefined = lockType;
       const valid = ["SOFT", "HARD", "KEYHOLDER"];
       if (!target || !valid.includes(target)) {
