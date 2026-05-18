@@ -1,12 +1,15 @@
 // ============================================================
 // app/api/plaid/create-link-token/route.ts
 // POST — issues a short-lived Plaid Link token for the signed-in user.
-// Sprint 17 (Phase 2 — phase2 branch only).
+// Sprint 17 (Phase 2).
+//
+// Native onboarding v2 — auth migrated to getRequestUserId so the
+// native app's `Authorization: Bearer` token resolves (cookie-only
+// getServerSession silently 401'd every native request).
 // ============================================================
 
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { getRequestUserId } from "@/lib/mobile-auth";
 import {
   getPlaidClient,
   PLAID_PRODUCTS,
@@ -14,10 +17,10 @@ import {
 } from "@/lib/plaid/client";
 import { DepositoryAccountSubtype } from "plaid";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -28,7 +31,7 @@ export async function POST() {
     // institution selector. Server-side enforcement; cannot be bypassed
     // from the client.
     const res = await plaid.linkTokenCreate({
-      user: { client_user_id: session.user.id },
+      user: { client_user_id: userId },
       client_name: "LockBox",
       products: PLAID_PRODUCTS,
       country_codes: PLAID_COUNTRY_CODES,

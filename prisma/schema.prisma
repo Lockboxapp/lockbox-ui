@@ -58,6 +58,16 @@ enum RequestType {
   UNLOCK
   TRANSFER
 }
+
+enum KycStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PENDING_REVIEW
+  VERIFIED
+  FAILED
+  RETRY_REQUIRED
+}
+
 // ------------------------------------------------------------
 // 2. NEXTAUTH CORE MODELS
 // ------------------------------------------------------------
@@ -69,6 +79,7 @@ model User {
   emailVerified DateTime?
   image         String?
   passwordHash  String?
+  phone         String?   // Native onboarding v2 — captured at signup
 
   // Relations
   accounts               Account[]
@@ -104,6 +115,16 @@ model User {
   plaidItems        PlaidItem[]
   plaidTransactions PlaidTransaction[]
   recurringBills    RecurringBill[]
+
+  // Native onboarding v2 — funnel analytics, KYC, skip timestamps
+  onboardingIntent  String?   // rent | bills | savings | control
+  onboardingVersion String?   // "v2"
+  onboardingSource  String?   // organic | referral | campaign
+  skippedKycAt      DateTime?
+  skippedBankLinkAt DateTime?
+  kycStatus         KycStatus @default(NOT_STARTED)
+  kycData           KycData?
+  onboardingState   Json?     // funnel-state blob for cross-device recovery
 }
 
 model Account {
@@ -265,6 +286,9 @@ model Box {
   // Both are null outside an active temporary unlock window.
   temporaryUnlockExpiresAt DateTime?
   originalLockType         LockType?
+
+  // Native onboarding v2 — first time this box received funds
+  firstFundedAt DateTime?
 
   @@index([userId])
   @@index([status])
@@ -512,4 +536,51 @@ model PasswordResetToken {
 
   @@index([email])
   @@index([token])
+}
+
+// ------------------------------------------------------------
+// 8. NATIVE ONBOARDING v2
+// ------------------------------------------------------------
+// KYC form data. v1 stores the submission and tracks kycStatus only —
+// no Unit BaaS call yet (User.unitCustomerId is the future hook).
+// The full SSN is never persisted; only the last 4 digits.
+
+model KycData {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  user           User      @relation(fields: [userId], references: [id])
+  legalFirstName String?
+  legalLastName  String?
+  dateOfBirth    String?   // stored as MM/DD/YYYY
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  zip            String?
+  ssnLast4       String?   // last 4 digits only — never the full SSN
+  submittedAt    DateTime?
+  verifiedAt     DateTime?
+  failureReason  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+// Temporary pre-account signup session for the two-step OTP flow.
+// Holds the pending user fields + a bcrypt-hashed OTP. Deleted on
+// successful verification or expiry (10 minutes from creation).
+
+model SignupSession {
+  id           String   @id @default(cuid())
+  sessionId    String   @unique @default(cuid())
+  fullName     String
+  email        String
+  passwordHash String
+  phone        String
+  timezone     String?
+  otpHash      String
+  otpAttempts  Int      @default(0)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([phone])
 }
