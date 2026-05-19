@@ -3,19 +3,18 @@
 // POST /api/signup/start
 //
 // Native onboarding v2 — step 1 of the two-step signup. Validates
-// the signup fields, creates a temporary SignupSession holding a
-// bcrypt-hashed OTP, sends the OTP by SMS, and returns the session
-// id. The User is NOT created here — see signup/verify.
+// the signup fields, creates a temporary SignupSession, and asks
+// Twilio Verify to send an OTP. The User is NOT created here — see
+// signup/verify. Twilio Verify owns the OTP; the app never sees it.
 //
 // No auth — the user does not exist yet.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { randomInt } from "crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { sendOtpSms } from "@/lib/sms";
+import { sendVerification } from "@/lib/sms";
 
 export const runtime = "nodejs";
 
@@ -79,8 +78,6 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const otp = String(randomInt(100000, 1000000));
-    const otpHash = await bcrypt.hash(otp, 10);
 
     const session = await prisma.signupSession.create({
       data: {
@@ -89,12 +86,12 @@ export async function POST(req: Request) {
         passwordHash,
         phone,
         timezone: timezone ?? null,
-        otpHash,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     });
 
-    await sendOtpSms(phone, otp);
+    // Twilio Verify generates and sends the 6-digit code.
+    await sendVerification(phone);
 
     return NextResponse.json({ signupSessionId: session.sessionId });
   } catch (err) {

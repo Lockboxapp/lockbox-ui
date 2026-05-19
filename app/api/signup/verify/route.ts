@@ -3,19 +3,19 @@
 // POST /api/signup/verify
 //
 // Native onboarding v2 — step 2 of the two-step signup. Verifies
-// the OTP against the SignupSession, creates the real User (with
-// starter vaults + system Wallet box, matching /api/signup), mints
-// a mobile Bearer token, and deletes the temporary session.
+// the OTP via Twilio Verify, creates the real User (with starter
+// vaults + system Wallet box, matching /api/signup), mints a mobile
+// Bearer token, and deletes the temporary session.
 //
 // No auth — the user does not exist until this route succeeds.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { encode } from "next-auth/jwt";
 import { prisma } from "@/lib/db";
 import { sendWelcomeEmail } from "@/lib/email";
 import { getServerPosthog } from "@/lib/posthog-server";
+import { checkVerification } from "@/lib/sms";
 
 export const runtime = "nodejs";
 
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
       data: { otpAttempts: { increment: 1 } },
     });
 
-    const otpValid = await bcrypt.compare(submittedOtp, session.otpHash);
+    const otpValid = await checkVerification(session.phone, submittedOtp);
     if (!otpValid) {
       return NextResponse.json({ error: "Invalid code" }, { status: 400 });
     }

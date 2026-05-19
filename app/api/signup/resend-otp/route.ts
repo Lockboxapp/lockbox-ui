@@ -3,16 +3,15 @@
 // POST /api/signup/resend-otp
 //
 // Native onboarding v2 — re-sends the OTP for an existing signup
-// session: new code, attempt counter reset, fresh 10-minute expiry.
+// session via Twilio Verify and refreshes the session's 10-minute
+// window / attempt counter.
 //
 // No auth — the user does not exist yet.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { randomInt } from "crypto";
-import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
-import { sendOtpSms } from "@/lib/sms";
+import { sendVerification } from "@/lib/sms";
 
 export const runtime = "nodejs";
 
@@ -53,19 +52,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const otp = String(randomInt(100000, 1000000));
-    const otpHash = await bcrypt.hash(otp, 10);
-
+    // Refresh the session window + attempt counter.
     await prisma.signupSession.update({
       where: { id: session.id },
       data: {
-        otpHash,
         otpAttempts: 0,
         expiresAt: new Date(Date.now() + 10 * 60 * 1000),
       },
     });
 
-    await sendOtpSms(session.phone, otp);
+    // Twilio Verify issues a fresh code.
+    await sendVerification(session.phone);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

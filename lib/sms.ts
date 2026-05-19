@@ -1,19 +1,27 @@
 // ============================================================
 // lib/sms.ts
-// SMS delivery via the Twilio REST API, called directly with
-// `fetch` — no `twilio` npm package (AGENT.md §3: no new
-// dependencies without founder approval).
+// Phone verification via the Twilio Verify REST API, called
+// directly with `fetch` — no `twilio` npm package (AGENT.md §3:
+// no new dependencies without founder approval).
 //
-// Env-gated: when TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN /
-// TWILIO_FROM_NUMBER are not all set (local dev, or Twilio not
-// yet provisioned), the call logs the message in dev and no-ops
-// so the signup funnel still works end-to-end. Set the three env
-// vars to go live — no code change required.
+// Twilio Verify generates, sends, and checks the OTP itself — the
+// app never sees, generates, or stores the code. `sendVerification`
+// triggers a code; `checkVerification` validates a user-entered one.
+//
+// Env-gated: when the Twilio Verify env vars are not all set (local
+// dev, or Verify not provisioned), `sendVerification` no-ops with a
+// dev log and `checkVerification` returns false — signup fails
+// closed rather than bypassing verification.
 // ============================================================
 
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_FROM = process.env.TWILIO_FROM_NUMBER;
+// In Vercel this is currently named `Verify_Service_SID`; the
+// canonical name is accepted too so either works.
+const VERIFY_SERVICE_SID =
+  process.env.TWILIO_VERIFY_SERVICE_SID ?? process.env.Verify_Service_SID;
+
+const VERIFY_BASE = "https://verify.twilio.com/v2/Services";
 
 /** Normalize a US phone number to E.164 (+1XXXXXXXXXX). */
 export function toE164(phone: string): string {
@@ -23,32 +31,37 @@ export function toE164(phone: string): string {
   return phone.startsWith("+") ? phone : `+${digits}`;
 }
 
+function isConfigured(): boolean {
+  return Boolean(TWILIO_SID && TWILIO_AUTH && VERIFY_SERVICE_SID);
+}
+
+function authHeader(): string {
+  return `Basic ${Buffer.from(`${TWILIO_SID}:${TWILIO_AUTH}`).toString(
+    "base64",
+  )}`;
+}
+
 /**
- * Send a transactional SMS. No-ops (with a dev log) when Twilio is
- * not configured; throws when a configured send fails.
+ * Trigger a Twilio Verify SMS OTP to `phone`. No-ops (with a dev
+ * log) when Twilio Verify is not configured.
  */
-export async function sendSms(to: string, body: string): Promise<void> {
-  if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_FROM) {
+export async function sendVerification(phone: string): Promise<void> {
+  if (!isConfigured()) {
     if (process.env.NODE_ENV !== "production") {
-      console.log(`[sms] Twilio not configured — would send to ${to}: ${body}`);
+      console.log(
+        `[sms] Twilio Verify not configured — would send OTP to ${phone}`,
+      );
     }
     return;
   }
 
-  const params = new URLSearchParams({
-    To: toE164(to),
-    From: TWILIO_FROM,
-    Body: body,
-  });
-
+  const params = new URLSearchParams({ To: toE164(phone), Channel: "sms" });
   const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+    `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/Verifications`,
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(
-          `${TWILIO_SID}:${TWILIO_AUTH}`,
-        ).toString("base64")}`,
+        Authorization: authHeader(),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: params.toString(),
@@ -57,14 +70,52 @@ export async function sendSms(to: string, body: string): Promise<void> {
 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`Twilio send failed (${res.status}): ${detail}`);
+    throw new Error(`Twilio Verify send failed (${res.status}): ${detail}`);
   }
 }
 
-/** Send a 6-digit signup verification code. */
-export async function sendOtpSms(phone: string, code: string): Promise<void> {
-  await sendSms(
-    phone,
-    `Your LockBox verification code is ${code}. It expires in 10 minutes.`,
+/**
+ * Check a user-entered OTP against Twilio Verify. Returns true only
+ * when Twilio reports the code as `approved`. Returns false when the
+ * verification is expired/consumed (404) or Verify is not configured.
+ */
+export async function checkVerification(
+  phone: string,
+  code: string,
+): Promise<boolean> {
+  if (!isConfigured()) {
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[sms] Twilio Verify not configured — cannot verify ${phone}`,
+      );
+    }
+    return false;
+  }
+
+  const params = new URLSearchParams({ To: toE164(phone), Code: code });
+  const res = await fetch(
+    `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: authHeader(),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    },
   );
+
+  // 404 — the verification expired, was already approved, or hit its
+  // attempt limit. Treat as a failed check.
+  if (res.status === 404) return false;
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Twilio Verify check failed (${res.status}): ${detail}`);
+  }
+
+  const data = (await res.json().catch(() => null)) as {
+    status?: string;
+  } | null;
+  return data?.status === "approved";
 }

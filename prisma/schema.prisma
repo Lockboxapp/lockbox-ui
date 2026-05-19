@@ -577,7 +577,6 @@ model SignupSession {
   passwordHash String
   phone        String
   timezone     String?
-  otpHash      String
   otpAttempts  Int      @default(0)
   expiresAt    DateTime
   createdAt    DateTime @default(now())
