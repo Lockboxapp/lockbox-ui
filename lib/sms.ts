@@ -23,12 +23,21 @@ const VERIFY_SERVICE_SID =
 
 const VERIFY_BASE = "https://verify.twilio.com/v2/Services";
 
-/** Normalize a US phone number to E.164 (+1XXXXXXXXXX). */
+/**
+ * Normalize a phone number to E.164 (+[countrycode][number]).
+ * Always strips formatting and returns a `+`-prefixed digit string,
+ * so identical input yields an identical value at send and check
+ * time — Twilio Verify matches verifications by an exact `To`.
+ */
 export function toE164(phone: string): string {
   const digits = phone.replace(/\D/g, "");
+  // Bare US/Canada local number — assume +1.
   if (digits.length === 10) return `+1${digits}`;
+  // Already carries the +1 country code.
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return phone.startsWith("+") ? phone : `+${digits}`;
+  // Any other length — an already-prefixed international number.
+  // Strip formatting and re-prefix so spaces/dashes never survive.
+  return `+${digits}`;
 }
 
 function isConfigured(): boolean {

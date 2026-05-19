@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { sendVerification } from "@/lib/sms";
+import { sendVerification, toE164 } from "@/lib/sms";
 
 export const runtime = "nodejs";
 
@@ -48,10 +48,13 @@ export async function POST(req: Request) {
     }
 
     const { fullName, email, password, timezone } = parsed.data;
-    const phone = parsed.data.phone.replace(/\D/g, "");
-    if (phone.length !== 10) {
+    // Store the phone in E.164 so signup/verify can hand it straight
+    // to Twilio Verify — the send and check calls must use an
+    // identical `To` or the verification won't match.
+    const phone = toE164(parsed.data.phone);
+    if (!/^\+[1-9]\d{6,14}$/.test(phone)) {
       return NextResponse.json(
-        { error: "Enter a valid 10-digit phone number" },
+        { error: "Enter a valid phone number" },
         { status: 400 },
       );
     }
