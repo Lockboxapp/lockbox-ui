@@ -71,7 +71,9 @@ function authHeader(): string {
  * like "Invalid code" several screens later. In non-prod the call
  * no-ops with a log so the flow remains exercisable without Twilio.
  */
-export async function sendVerification(phone: string): Promise<void> {
+export async function sendVerification(
+  phone: string,
+): Promise<{ sid: string | null }> {
   console.log(
     `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
   );
@@ -85,7 +87,7 @@ export async function sendVerification(phone: string): Promise<void> {
     console.log(
       `[sms.sendVerification] Twilio Verify not configured — would send OTP to ${phone}`,
     );
-    return;
+    return { sid: null };
   }
 
   const to = toE164(phone);
@@ -129,6 +131,8 @@ export async function sendVerification(phone: string): Promise<void> {
       `Twilio Verify send failed (http=${res.status}): ${bodyText}`,
     );
   }
+
+  return { sid: parsed?.sid ?? null };
 }
 
 /**
@@ -144,6 +148,7 @@ export async function sendVerification(phone: string): Promise<void> {
 export async function checkVerification(
   phone: string,
   code: string,
+  verificationSid?: string | null,
 ): Promise<CheckResult> {
   console.log(
     `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
@@ -156,8 +161,12 @@ export async function checkVerification(
   }
 
   const to = toE164(phone);
+  // Prefer checking by VerificationSid (Twilio's own opaque id for the
+  // pending verification) over checking by To phone. SID checks are
+  // immune to any phone-normalization mismatch between send and check.
+  const useSid = Boolean(verificationSid);
   console.log(
-    `[sms.checkVerification] RAW To param: "${to}" Code param: "${code}"`,
+    `[sms.checkVerification] RAW To param: "${to}" Code param: "${code}" verificationSid="${verificationSid ?? ""}" useSid=${useSid}`,
   );
   {
     const toBuffer = Buffer.from(to);
@@ -165,7 +174,9 @@ export async function checkVerification(
       `[sms.checkVerification] To buffer length: ${toBuffer.length} bytes: ${toBuffer.toString("hex")}`,
     );
   }
-  const params = new URLSearchParams({ To: to, Code: code });
+  const params = useSid
+    ? new URLSearchParams({ VerificationSid: verificationSid as string, Code: code })
+    : new URLSearchParams({ To: to, Code: code });
   const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`;
   console.log(`[sms.checkVerification] calling URL: ${url}`);
   const res = await fetch(

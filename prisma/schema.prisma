@@ -570,16 +570,17 @@ model KycData {
 // successful verification or expiry (10 minutes from creation).
 
 model SignupSession {
-  id           String   @id @default(cuid())
-  sessionId    String   @unique @default(cuid())
-  fullName     String
-  email        String
-  passwordHash String
-  phone        String
-  timezone     String?
-  otpAttempts  Int      @default(0)
-  expiresAt    DateTime
-  createdAt    DateTime @default(now())
+  id                    String   @id @default(cuid())
+  sessionId             String   @unique @default(cuid())
+  fullName              String
+  email                 String
+  passwordHash          String
+  phone                 String
+  timezone              String?
+  otpAttempts           Int      @default(0)
+  expiresAt             DateTime
+  createdAt             DateTime @default(now())
+  twilioVerificationSid String?
 
   @@index([phone])
 }

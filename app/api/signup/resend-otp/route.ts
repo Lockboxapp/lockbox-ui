@@ -61,8 +61,16 @@ export async function POST(req: Request) {
       },
     });
 
-    // Twilio Verify issues a fresh code.
-    await sendVerification(session.phone);
+    // Twilio Verify issues a fresh code. Capture the new SID and
+    // overwrite the prior one so signup/verify checks by the live
+    // verification, not a superseded one.
+    const { sid } = await sendVerification(session.phone);
+    if (sid) {
+      await prisma.signupSession.update({
+        where: { id: session.id },
+        data: { twilioVerificationSid: sid },
+      });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

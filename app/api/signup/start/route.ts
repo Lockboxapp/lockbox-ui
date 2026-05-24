@@ -139,7 +139,20 @@ export async function POST(req: Request) {
     console.log(
       `[signup/start] → sendVerification(phone=${JSON.stringify(phone)}) — matches session.phone? ${phone === session.phone}`,
     );
-    await sendVerification(phone);
+    const { sid } = await sendVerification(phone);
+    console.log(
+      `[signup/start] sendVerification returned sid=${JSON.stringify(sid)}`,
+    );
+
+    // Persist the freshly-issued Twilio verification SID so signup/verify
+    // can check by SID instead of by phone — immune to any phone
+    // normalization drift between send and check.
+    if (sid) {
+      await prisma.signupSession.update({
+        where: { id: session.id },
+        data: { twilioVerificationSid: sid },
+      });
+    }
 
     return NextResponse.json({ signupSessionId: session.sessionId });
   } catch (err) {

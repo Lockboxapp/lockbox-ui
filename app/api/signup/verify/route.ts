@@ -113,9 +113,13 @@ export async function POST(req: Request) {
     );
 
     console.log(
-      `[verify] ABOUT TO CALL checkVerification phone=${JSON.stringify(session.phone)} code.len=${submittedOtp.length}`,
+      `[verify] ABOUT TO CALL checkVerification phone=${JSON.stringify(session.phone)} code.len=${submittedOtp.length} twilioVerificationSid=${JSON.stringify(session.twilioVerificationSid)}`,
     );
-    const result = await checkVerification(session.phone, submittedOtp);
+    const result = await checkVerification(
+      session.phone,
+      submittedOtp,
+      session.twilioVerificationSid,
+    );
     console.log(
       `[verify] checkVerification RETURNED ${JSON.stringify(result)}`,
     );
