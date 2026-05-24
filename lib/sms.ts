@@ -177,7 +177,7 @@ export async function checkVerification(
   const params = useSid
     ? new URLSearchParams({ VerificationSid: verificationSid as string, Code: code })
     : new URLSearchParams({ To: to, Code: code });
-  const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`;
+  const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationCheck`;
   console.log(`[sms.checkVerification] calling URL: ${url}`);
   const res = await fetch(
     url,
