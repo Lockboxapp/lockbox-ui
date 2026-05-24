@@ -87,6 +87,12 @@ export async function sendVerification(phone: string): Promise<void> {
 
   const to = toE164(phone);
   console.log(`[sms.sendVerification] RAW To param: "${to}"`);
+  {
+    const toBuffer = Buffer.from(to);
+    console.log(
+      `[sms.sendVerification] To buffer length: ${toBuffer.length} bytes: ${toBuffer.toString("hex")}`,
+    );
+  }
   const params = new URLSearchParams({ To: to, Channel: "sms" });
   const res = await fetch(
     `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/Verifications`,
@@ -145,6 +151,12 @@ export async function checkVerification(
   console.log(
     `[sms.checkVerification] RAW To param: "${to}" Code param: "${code}"`,
   );
+  {
+    const toBuffer = Buffer.from(to);
+    console.log(
+      `[sms.checkVerification] To buffer length: ${toBuffer.length} bytes: ${toBuffer.toString("hex")}`,
+    );
+  }
   const params = new URLSearchParams({ To: to, Code: code });
   const res = await fetch(
     `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`,
