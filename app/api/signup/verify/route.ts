@@ -83,8 +83,38 @@ export async function POST(req: Request) {
       data: { otpAttempts: { increment: 1 } },
     });
 
-    const otpValid = await checkVerification(session.phone, submittedOtp);
-    if (!otpValid) {
+    const result = await checkVerification(session.phone, submittedOtp);
+    if (!result.ok) {
+      if (result.reason === "expired") {
+        // Twilio no longer has this verification — expired, already
+        // approved, or hit its attempt limit. Discard the session so a
+        // resend creates a fresh verification rather than checking
+        // against a dead one.
+        await prisma.signupSession
+          .delete({ where: { id: session.id } })
+          .catch(() => undefined);
+        return NextResponse.json(
+          {
+            error:
+              "This code has expired. Tap “Resend code” to get a new one.",
+            code: "OTP_EXPIRED",
+          },
+          { status: 410 },
+        );
+      }
+      if (result.reason === "not_configured") {
+        return NextResponse.json(
+          { error: "SMS verification is not configured" },
+          { status: 500 },
+        );
+      }
+      if (result.reason === "error") {
+        return NextResponse.json(
+          { error: "Could not verify code. Try again." },
+          { status: 502 },
+        );
+      }
+      // reason: "invalid" — Twilio checked it and the code did not match.
       return NextResponse.json({ error: "Invalid code" }, { status: 400 });
     }
 

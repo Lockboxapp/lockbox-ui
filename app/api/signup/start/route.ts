@@ -81,19 +81,47 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
+    const nextExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    const session = await prisma.signupSession.create({
-      data: {
-        fullName,
-        email,
-        passwordHash,
-        phone,
-        timezone: timezone ?? null,
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      },
+    // Reconcile with any live session for this phone. Twilio Verify
+    // keeps one live verification per `To`, so spawning a parallel
+    // SignupSession here desyncs the two clocks — the app's session
+    // looks alive while Twilio's verification has been superseded,
+    // and the resulting check silently lands on nothing. Reuse the
+    // existing session and let `sendVerification` replace Twilio's
+    // pending verification with a fresh one.
+    const liveSession = await prisma.signupSession.findFirst({
+      where: { phone, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: "desc" },
     });
 
-    // Twilio Verify generates and sends the 6-digit code.
+    const session = liveSession
+      ? await prisma.signupSession.update({
+          where: { id: liveSession.id },
+          data: {
+            fullName,
+            email,
+            passwordHash,
+            timezone: timezone ?? null,
+            otpAttempts: 0,
+            expiresAt: nextExpiresAt,
+          },
+        })
+      : await prisma.signupSession.create({
+          data: {
+            fullName,
+            email,
+            passwordHash,
+            phone,
+            timezone: timezone ?? null,
+            expiresAt: nextExpiresAt,
+          },
+        });
+
+    // Twilio Verify generates and sends the 6-digit code. In
+    // production this throws when Verify is unconfigured (see
+    // lib/sms.ts) — we want signup/start to surface that as a real
+    // error rather than returning 200 and mislabeling later.
     await sendVerification(phone);
 
     return NextResponse.json({ signupSessionId: session.sessionId });
