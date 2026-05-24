@@ -72,6 +72,9 @@ function authHeader(): string {
  * no-ops with a log so the flow remains exercisable without Twilio.
  */
 export async function sendVerification(phone: string): Promise<void> {
+  console.log(
+    `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
+  );
   if (!isVerifyConfigured()) {
     if (process.env.NODE_ENV === "production") {
       console.error(
@@ -94,8 +97,10 @@ export async function sendVerification(phone: string): Promise<void> {
     );
   }
   const params = new URLSearchParams({ To: to, Channel: "sms" });
+  const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/Verifications`;
+  console.log(`[sms.sendVerification] calling URL: ${url}`);
   const res = await fetch(
-    `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/Verifications`,
+    url,
     {
       method: "POST",
       headers: {
@@ -140,6 +145,9 @@ export async function checkVerification(
   phone: string,
   code: string,
 ): Promise<CheckResult> {
+  console.log(
+    `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
+  );
   if (!isVerifyConfigured()) {
     console.error(
       `[sms.checkVerification] Twilio Verify not configured — cannot verify ${phone}`,
@@ -158,8 +166,10 @@ export async function checkVerification(
     );
   }
   const params = new URLSearchParams({ To: to, Code: code });
+  const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`;
+  console.log(`[sms.checkVerification] calling URL: ${url}`);
   const res = await fetch(
-    `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationChecks`,
+    url,
     {
       method: "POST",
       headers: {
