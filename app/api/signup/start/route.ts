@@ -51,11 +51,7 @@ export async function POST(req: Request) {
     // Store the phone in E.164 so signup/verify can hand it straight
     // to Twilio Verify — the send and check calls must use an
     // identical `To` or the verification won't match.
-    const rawPhone = parsed.data.phone;
-    const phone = toE164(rawPhone);
-    console.log(
-      `[signup/start] phone.raw=${JSON.stringify(rawPhone)} phone.e164=${JSON.stringify(phone)}`,
-    );
+    const phone = toE164(parsed.data.phone);
     if (!/^\+[1-9]\d{6,14}$/.test(phone)) {
       return NextResponse.json(
         { error: "Enter a valid phone number" },
@@ -98,13 +94,6 @@ export async function POST(req: Request) {
       where: { phone, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "desc" },
     });
-    console.log(
-      `[signup/start] live-session lookup for phone=${JSON.stringify(phone)} → ${
-        liveSession
-          ? `found id=${liveSession.id} sessionId=${liveSession.sessionId} session.phone=${JSON.stringify(liveSession.phone)} createdAt=${liveSession.createdAt.toISOString()} expiresAt=${liveSession.expiresAt.toISOString()}`
-          : "none"
-      }`,
-    );
 
     const session = liveSession
       ? await prisma.signupSession.update({
@@ -128,21 +117,12 @@ export async function POST(req: Request) {
             expiresAt: nextExpiresAt,
           },
         });
-    console.log(
-      `[signup/start] session ${liveSession ? "REUSED" : "CREATED"} id=${session.id} sessionId=${session.sessionId} session.phone=${JSON.stringify(session.phone)}`,
-    );
 
     // Twilio Verify generates and sends the 6-digit code. In
     // production this throws when Verify is unconfigured (see
     // lib/sms.ts) — we want signup/start to surface that as a real
     // error rather than returning 200 and mislabeling later.
-    console.log(
-      `[signup/start] → sendVerification(phone=${JSON.stringify(phone)}) — matches session.phone? ${phone === session.phone}`,
-    );
     const { sid } = await sendVerification(phone);
-    console.log(
-      `[signup/start] sendVerification returned sid=${JSON.stringify(sid)}`,
-    );
 
     // Persist the freshly-issued Twilio verification SID so signup/verify
     // can check by SID instead of by phone — immune to any phone

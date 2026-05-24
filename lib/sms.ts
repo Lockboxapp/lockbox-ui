@@ -11,7 +11,7 @@
 // Env-gated: when the Twilio Verify env vars are not all set,
 // production HARD-FAILS (so signup surfaces a real error instead of
 // silently mislabeling later as "Invalid code"); local dev no-ops
-// with a log so the rest of the flow stays exercisable.
+// so the rest of the flow stays exercisable.
 // ============================================================
 
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -64,19 +64,18 @@ function authHeader(): string {
 }
 
 /**
- * Trigger a Twilio Verify SMS OTP to `phone`.
+ * Trigger a Twilio Verify SMS OTP to `phone`. Returns the Twilio
+ * verification SID so the caller can persist it and later check by
+ * SID (more reliable than checking by phone).
  *
  * In production, throws when Twilio Verify is not configured — a
  * silent no-op here is what previously made misconfiguration look
  * like "Invalid code" several screens later. In non-prod the call
- * no-ops with a log so the flow remains exercisable without Twilio.
+ * no-ops so the flow remains exercisable without Twilio.
  */
 export async function sendVerification(
   phone: string,
 ): Promise<{ sid: string | null }> {
-  console.log(
-    `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
-  );
   if (!isVerifyConfigured()) {
     if (process.env.NODE_ENV === "production") {
       console.error(
@@ -84,34 +83,20 @@ export async function sendVerification(
       );
       throw new Error("SMS verification is not configured");
     }
-    console.log(
-      `[sms.sendVerification] Twilio Verify not configured — would send OTP to ${phone}`,
-    );
     return { sid: null };
   }
 
   const to = toE164(phone);
-  console.log(`[sms.sendVerification] RAW To param: "${to}"`);
-  {
-    const toBuffer = Buffer.from(to);
-    console.log(
-      `[sms.sendVerification] To buffer length: ${toBuffer.length} bytes: ${toBuffer.toString("hex")}`,
-    );
-  }
   const params = new URLSearchParams({ To: to, Channel: "sms" });
   const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/Verifications`;
-  console.log(`[sms.sendVerification] calling URL: ${url}`);
-  const res = await fetch(
-    url,
-    {
-      method: "POST",
-      headers: {
-        Authorization: authHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(),
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-  );
+    body: params.toString(),
+  });
 
   const bodyText = await res.text().catch(() => "");
   type TwilioBody = { status?: string; sid?: string };
@@ -122,11 +107,10 @@ export async function sendVerification(
     parsed = null;
   }
 
-  console.log(
-    `[sms.sendVerification] to=${to} http=${res.status} status=${parsed?.status ?? "?"} sid=${parsed?.sid ?? "?"}`,
-  );
-
   if (!res.ok) {
+    console.error(
+      `[sms.sendVerification] Twilio send failed http=${res.status}`,
+    );
     throw new Error(
       `Twilio Verify send failed (http=${res.status}): ${bodyText}`,
     );
@@ -144,52 +128,40 @@ export async function sendVerification(
  *                                    already approved, or max attempts).
  *  - `reason: "not_configured"`    — env vars missing.
  *  - `reason: "error"`             — unexpected Twilio failure.
+ *
+ * When `verificationSid` is provided, the check is keyed off Twilio's
+ * own opaque SID (immune to any phone-normalization drift between
+ * send and check). Otherwise it falls back to keying off the To phone.
  */
 export async function checkVerification(
   phone: string,
   code: string,
   verificationSid?: string | null,
 ): Promise<CheckResult> {
-  console.log(
-    `[sms] VERIFY_SERVICE_SID="${VERIFY_SERVICE_SID}" configured=${isVerifyConfigured()}`,
-  );
   if (!isVerifyConfigured()) {
     console.error(
-      `[sms.checkVerification] Twilio Verify not configured — cannot verify ${phone}`,
+      "[sms.checkVerification] Twilio Verify is not configured",
     );
     return { ok: false, reason: "not_configured" };
   }
 
   const to = toE164(phone);
-  // Prefer checking by VerificationSid (Twilio's own opaque id for the
-  // pending verification) over checking by To phone. SID checks are
-  // immune to any phone-normalization mismatch between send and check.
   const useSid = Boolean(verificationSid);
-  console.log(
-    `[sms.checkVerification] RAW To param: "${to}" Code param: "${code}" verificationSid="${verificationSid ?? ""}" useSid=${useSid}`,
-  );
-  {
-    const toBuffer = Buffer.from(to);
-    console.log(
-      `[sms.checkVerification] To buffer length: ${toBuffer.length} bytes: ${toBuffer.toString("hex")}`,
-    );
-  }
   const params = useSid
-    ? new URLSearchParams({ VerificationSid: verificationSid as string, Code: code })
+    ? new URLSearchParams({
+        VerificationSid: verificationSid as string,
+        Code: code,
+      })
     : new URLSearchParams({ To: to, Code: code });
   const url = `${VERIFY_BASE}/${VERIFY_SERVICE_SID}/VerificationCheck`;
-  console.log(`[sms.checkVerification] calling URL: ${url}`);
-  const res = await fetch(
-    url,
-    {
-      method: "POST",
-      headers: {
-        Authorization: authHeader(),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: params.toString(),
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader(),
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-  );
+    body: params.toString(),
+  });
 
   const bodyText = await res.text().catch(() => "");
   type TwilioBody = { status?: string; sid?: string };
@@ -205,25 +177,17 @@ export async function checkVerification(
   // as a wrong code; surface it distinctly so the UI can tell the
   // user to request a new one instead of misleadingly saying "Invalid".
   if (res.status === 404) {
-    console.warn(
-      `[sms.checkVerification] to=${to} http=404 — verification not found (expired/consumed)`,
-    );
     return { ok: false, reason: "expired" };
   }
 
   if (!res.ok) {
     console.error(
-      `[sms.checkVerification] to=${to} http=${res.status} body=${bodyText}`,
+      `[sms.checkVerification] Twilio check failed http=${res.status}`,
     );
     return { ok: false, reason: "error", detail: bodyText };
   }
 
-  const status = parsed?.status ?? "?";
-  console.log(
-    `[sms.checkVerification] to=${to} http=${res.status} status=${status}`,
-  );
-
-  if (status === "approved") return { ok: true };
+  if (parsed?.status === "approved") return { ok: true };
   // Twilio 200 with status `pending` means the code was checked but
   // did not match. Treat that as a genuine "invalid code".
   return { ok: false, reason: "invalid" };
