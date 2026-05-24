@@ -24,10 +24,13 @@ const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const MAX_OTP_ATTEMPTS = 5;
 
 export async function POST(req: Request) {
+  console.log("[verify] ENTRY");
   try {
     const secret = process.env.NEXTAUTH_SECRET;
     if (!secret) {
-      console.error("[POST /api/signup/verify] NEXTAUTH_SECRET is not set");
+      console.error(
+        "[verify] EARLY EXIT: NEXTAUTH_SECRET is not set → 500",
+      );
       return NextResponse.json(
         { error: "Server misconfigured" },
         { status: 500 },
@@ -45,7 +48,14 @@ export async function POST(req: Request) {
           ? body.code
           : "";
 
+    console.log(
+      `[verify] body keys=${JSON.stringify(Object.keys(body ?? {}))} signupSessionId.len=${signupSessionId.length} code.len=${submittedOtp.length}`,
+    );
+
     if (!signupSessionId || !submittedOtp) {
+      console.warn(
+        "[verify] EARLY EXIT: missing signupSessionId or code → 400",
+      );
       return NextResponse.json(
         { error: "signupSessionId and code are required" },
         { status: 400 },
@@ -63,6 +73,9 @@ export async function POST(req: Request) {
       }`,
     );
     if (!session) {
+      console.warn(
+        `[verify] EARLY EXIT: session not found for sessionId=${JSON.stringify(signupSessionId)} → 404`,
+      );
       return NextResponse.json(
         { error: "Signup session not found" },
         { status: 404 },
@@ -71,12 +84,18 @@ export async function POST(req: Request) {
 
     // Expired — discard the session.
     if (session.expiresAt.getTime() < Date.now()) {
+      console.warn(
+        `[verify] EARLY EXIT: session expired (expiresAt=${session.expiresAt.toISOString()} now=${new Date().toISOString()}) → 410, deleting id=${session.id}`,
+      );
       await prisma.signupSession.delete({ where: { id: session.id } });
       return NextResponse.json({ error: "Code expired" }, { status: 410 });
     }
 
     // Too many wrong attempts — discard the session.
     if (session.otpAttempts >= MAX_OTP_ATTEMPTS) {
+      console.warn(
+        `[verify] EARLY EXIT: otpAttempts=${session.otpAttempts} >= MAX(${MAX_OTP_ATTEMPTS}) → 429, deleting id=${session.id}`,
+      );
       await prisma.signupSession.delete({ where: { id: session.id } });
       return NextResponse.json(
         { error: "Too many attempts" },
@@ -89,11 +108,17 @@ export async function POST(req: Request) {
       where: { id: session.id },
       data: { otpAttempts: { increment: 1 } },
     });
+    console.log(
+      `[verify] incremented otpAttempts on id=${session.id} (was ${session.otpAttempts})`,
+    );
 
     console.log(
-      `[signup/verify] → checkVerification(phone=${JSON.stringify(session.phone)}, code.length=${submittedOtp.length})`,
+      `[verify] ABOUT TO CALL checkVerification phone=${JSON.stringify(session.phone)} code.len=${submittedOtp.length}`,
     );
     const result = await checkVerification(session.phone, submittedOtp);
+    console.log(
+      `[verify] checkVerification RETURNED ${JSON.stringify(result)}`,
+    );
     if (!result.ok) {
       if (result.reason === "expired") {
         // Twilio no longer has this verification — expired, already
