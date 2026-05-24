@@ -55,6 +55,13 @@ export async function POST(req: Request) {
     const session = await prisma.signupSession.findUnique({
       where: { sessionId: signupSessionId },
     });
+    console.log(
+      `[signup/verify] session lookup sessionId=${JSON.stringify(signupSessionId)} → ${
+        session
+          ? `found id=${session.id} session.phone=${JSON.stringify(session.phone)} createdAt=${session.createdAt.toISOString()} expiresAt=${session.expiresAt.toISOString()} otpAttempts=${session.otpAttempts}`
+          : "none"
+      }`,
+    );
     if (!session) {
       return NextResponse.json(
         { error: "Signup session not found" },
@@ -83,6 +90,9 @@ export async function POST(req: Request) {
       data: { otpAttempts: { increment: 1 } },
     });
 
+    console.log(
+      `[signup/verify] → checkVerification(phone=${JSON.stringify(session.phone)}, code.length=${submittedOtp.length})`,
+    );
     const result = await checkVerification(session.phone, submittedOtp);
     if (!result.ok) {
       if (result.reason === "expired") {
