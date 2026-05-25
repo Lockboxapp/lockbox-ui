@@ -1,34 +1,48 @@
 // ============================================================
 // app/api/plaid/items/route.ts
 // GET — list all PlaidItems for the signed-in user.
-// Returns id, institution, isPrimary, createdAt for each.
-// Sprint 17 extended hotfix — multi-bank.
+//
+// Sprint 6 (native settings): switched auth from getServerSession
+// to getRequestUserId so Bearer tokens from the native app work
+// alongside the web session cookie. The response shape was also
+// flattened to a top-level array of bank-shaped objects the
+// mobile "Connected banks" screen consumes directly. We do NOT
+// currently store per-account `last4` / `accountType` locally
+// (those live on Plaid Accounts, not our PlaidItem table), so
+// those fields are returned as null — populated only if/when we
+// call /accounts/get and persist them.
 // ============================================================
 
-import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { getRequestUserId } from "@/lib/mobile-auth";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
+    const userId = await getRequestUserId(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const items = await prisma.plaidItem.findMany({
-      where: { userId: session.user.id },
+      where: { userId },
       orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
       select: {
         id: true,
         institution: true,
-        isPrimary: true,
-        createdAt: true,
       },
     });
 
-    return NextResponse.json({ items });
+    // Empty list is a valid result, never a 404.
+    const banks = items.map((item) => ({
+      id: item.id,
+      institutionName: item.institution,
+      // Not stored locally yet — Plaid Accounts API would populate.
+      accountType: null as string | null,
+      last4: null as string | null,
+    }));
+
+    return NextResponse.json(banks);
   } catch (err) {
     console.error("[GET /api/plaid/items]", err);
     return NextResponse.json(
