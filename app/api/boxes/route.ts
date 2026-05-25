@@ -108,7 +108,31 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, description, targetAmount, lockUntil, lockType, keyholderRelationshipId, initialDepositInDollars } = body;
+    const {
+      name,
+      description,
+      targetAmount,
+      targetAmountCents,
+      lockUntil: lockUntilRaw,
+      targetDate,
+      lockType,
+      keyholderRelationshipId,
+      initialDepositInDollars,
+    } = body;
+
+    // Native client sends `targetDate`; the legacy web client sends
+    // `lockUntil`. Accept either so a single backend serves both.
+    const lockUntil = lockUntilRaw ?? targetDate ?? null;
+
+    // `targetAmountCents` (native, integer cents) wins when present;
+    // otherwise fall back to the legacy web shape `targetAmount`
+    // (dollars, multiplied to cents at write time).
+    const targetAmountInCents =
+      targetAmountCents != null
+        ? Math.round(targetAmountCents)
+        : targetAmount != null
+          ? Math.round(targetAmount * 100)
+          : null;
 
     // Validate lockType
     const validLockTypes = ["HARD", "SOFT", "KEYHOLDER"];
@@ -133,7 +157,7 @@ export async function POST(req: NextRequest) {
       data: {
         name: name.trim(),
         description: description ?? null,
-        targetAmount: targetAmount ? Math.round(targetAmount * 100) : null,
+        targetAmount: targetAmountInCents,
         lockType: resolvedLockType,
         lockUntil: lockUntil ? new Date(lockUntil) : null,
         status: autoLock ? BOX_STATUS.LOCKED : BOX_STATUS.CREATED,
