@@ -460,19 +460,31 @@ export async function PATCH(
     // HARD/KEYHOLDER lockUntil can only be set via the lock action at creation/lock time.
     // Sprint 13 — lockUntil=null is always allowed (clears the target date);
     // only reject past dates when setting a new target date.
+    // Sprint 17 — narrow exception for HARD/KEYHOLDER once the commitment
+    // period ends: a passed target date unlocks all three "what next?"
+    // flows (Restart, Keep going, Adjust) regardless of lockType. The
+    // box is conceptually done; editing its target forward is what
+    // un-strands the user.
     if (lockUntil !== undefined) {
       if (box.isWallet) {
         return NextResponse.json({ error: "Wallet has no target date." }, { status: 400 });
       }
-      if (box.lockType !== "SOFT") {
+      const targetDatePassed = box.lockUntil
+        ? box.lockUntil <= new Date()
+        : false;
+      const canEditTargetDate = box.lockType === "SOFT" || targetDatePassed;
+      if (!canEditTargetDate) {
         return NextResponse.json(
-          { error: "Only Flexible (SOFT) boxes can edit the target date." },
+          {
+            error:
+              "Target date can only be changed on Flexible boxes or after your commitment period ends.",
+          },
           { status: 400 },
         );
       }
       if (lockUntil !== null && new Date(lockUntil) <= new Date()) {
         return NextResponse.json(
-          { error: "Target date must be in the future." },
+          { error: "New target date must be in the future." },
           { status: 400 },
         );
       }
@@ -625,6 +637,42 @@ export async function DELETE(
         data: { isClosed: true },
       });
     });
+
+    // Sprint 17 — clean termination of any KeyholderRelationship
+    // that linked to this box. Excludes ALL-scope relationships
+    // (those have no boxes join row — they keep covering the
+    // user's other boxes). Records are NOT deleted: terminatedAt
+    // + terminationReason are the audit trail a future keyholder-
+    // notification surface will read from.
+    const terminatedRels = await prisma.keyholderRelationship.findMany({
+      where: {
+        boxes: { some: { boxId: box.id } },
+        terminatedAt: null,
+      },
+      select: { id: true },
+    });
+    if (terminatedRels.length > 0) {
+      await prisma.keyholderRelationship.updateMany({
+        where: { id: { in: terminatedRels.map((r) => r.id) } },
+        data: {
+          terminatedAt: new Date(),
+          terminationReason: "BOX_CLOSED",
+        },
+      });
+
+      const ph = getServerPosthog();
+      ph.capture({
+        distinctId: userId,
+        event: "keyholder_relationship_terminated",
+        // No PII / keyholder ids — count + cause + box only.
+        properties: {
+          boxId: box.id,
+          reason: "BOX_CLOSED",
+          keyholderCount: terminatedRels.length,
+        },
+      });
+      await ph.shutdown();
+    }
 
     return NextResponse.json({
       ok: true,

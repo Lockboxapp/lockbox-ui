@@ -377,6 +377,11 @@ model KeyholderRelationship {
   acceptedAt      DateTime?
   revokedAt       DateTime?
   revokedBy       String? // Sprint 11 — 'KEYHOLDER' (opt-out) or 'OWNER' (removed)
+  // Sprint 17 — cause-of-termination marker, distinct from revokedBy
+  // (which records who revoked). Set whenever a relationship is
+  // terminated automatically (e.g. last covered box archived).
+  terminatedAt      DateTime?
+  terminationReason String? // 'BOX_CLOSED' | 'USER_REMOVED' | 'KEYHOLDER_REMOVED'
   safetyMode      Boolean                     @default(false)
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt
