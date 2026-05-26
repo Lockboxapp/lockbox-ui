@@ -377,11 +377,6 @@ model KeyholderRelationship {
   acceptedAt      DateTime?
   revokedAt       DateTime?
   revokedBy       String? // Sprint 11 — 'KEYHOLDER' (opt-out) or 'OWNER' (removed)
-  // Sprint 17 — cause-of-termination marker, distinct from revokedBy
-  // (which records who revoked). Set whenever a relationship is
-  // terminated automatically (e.g. last covered box archived).
-  terminatedAt      DateTime?
-  terminationReason String? // 'BOX_CLOSED' | 'USER_REMOVED' | 'KEYHOLDER_REMOVED'
   safetyMode      Boolean                     @default(false)
   createdAt       DateTime                    @default(now())
   updatedAt       DateTime                    @updatedAt
@@ -402,6 +397,11 @@ model KeyholderRelationshipBox {
   id             String @id @default(cuid())
   relationshipId String
   boxId          String
+  // Sprint 17 — per-box termination so a keyholder's coverage on
+  // other boxes survives when one box is closed. Set when the box
+  // is closed or the user removes the keyholder from this box.
+  terminatedAt      DateTime?
+  terminationReason String? // 'BOX_CLOSED' | 'USER_REMOVED'
 
   relationship KeyholderRelationship @relation(fields: [relationshipId], references: [id])
   box          Box                   @relation(fields: [boxId], references: [id])

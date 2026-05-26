@@ -638,22 +638,23 @@ export async function DELETE(
       });
     });
 
-    // Sprint 17 — clean termination of any KeyholderRelationship
-    // that linked to this box. Excludes ALL-scope relationships
-    // (those have no boxes join row — they keep covering the
-    // user's other boxes). Records are NOT deleted: terminatedAt
-    // + terminationReason are the audit trail a future keyholder-
-    // notification surface will read from.
-    const terminatedRels = await prisma.keyholderRelationship.findMany({
-      where: {
-        boxes: { some: { boxId: box.id } },
-        terminatedAt: null,
-      },
+    // Sprint 17 — terminate the per-box keyholder join rows for
+    // THIS box only. The parent KeyholderRelationship is left
+    // untouched so the keyholder's coverage on the user's other
+    // boxes (whether SELECTED or ALL scope) survives the close.
+    // ALL-scope relationships never have a boxes join row, so
+    // they're naturally excluded — that's correct: closing one
+    // box doesn't terminate blanket coverage. The join rows are
+    // updated (not deleted) so terminatedAt + terminationReason
+    // remain a per-box audit trail for the future keyholder
+    // notification surface.
+    const terminatedJoinRows = await prisma.keyholderRelationshipBox.findMany({
+      where: { boxId: box.id, terminatedAt: null },
       select: { id: true },
     });
-    if (terminatedRels.length > 0) {
-      await prisma.keyholderRelationship.updateMany({
-        where: { id: { in: terminatedRels.map((r) => r.id) } },
+    if (terminatedJoinRows.length > 0) {
+      await prisma.keyholderRelationshipBox.updateMany({
+        where: { boxId: box.id, terminatedAt: null },
         data: {
           terminatedAt: new Date(),
           terminationReason: "BOX_CLOSED",
@@ -668,7 +669,7 @@ export async function DELETE(
         properties: {
           boxId: box.id,
           reason: "BOX_CLOSED",
-          keyholderCount: terminatedRels.length,
+          keyholderCount: terminatedJoinRows.length,
         },
       });
       await ph.shutdown();
