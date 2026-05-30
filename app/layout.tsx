@@ -39,6 +39,9 @@ export const metadata: Metadata = {
     description,
     images: ["/og-image.png"],
   },
+  other: {
+    image: `${siteUrl}/og-image.png`,
+  },
 };
 
 export default function RootLayout({
