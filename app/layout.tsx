@@ -52,6 +52,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <meta property="og:image" content="https://www.lockboxfinance.com/og-image.png" />
+        <meta property="og:image:secure_url" content="https://www.lockboxfinance.com/og-image.png" />
+        <meta property="og:image:type" content="image/png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="LockBox — Secure what matters. Access with confidence." />
+        <meta name="twitter:image" content="https://www.lockboxfinance.com/og-image.png" />
+        <meta name="image" content="https://www.lockboxfinance.com/og-image.png" />
+        <link rel="image_src" href="https://www.lockboxfinance.com/og-image.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500;600&display=swap"
