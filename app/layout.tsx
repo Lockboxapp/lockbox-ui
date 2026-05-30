@@ -4,7 +4,7 @@ import "./globals.css";
 import ClientProviders from "@/components/ClientProviders";
 import { PostHogInit } from "@/components/PostHogInit";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://lockboxfinance.com";
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.lockboxfinance.com";
 
 const description =
   "LockBox locks your bill money safely away until the day it's due — keeping your funds private, protected from impulse spending, and accessible exactly when you actually need them. Secure what matters. Access with confidence.";
