@@ -927,7 +927,7 @@ const bodyHtml = `
     Now in private beta
   </div>
 
-  <h1>Your money is safe<br>from <em>you.</em></h1>
+  <h1>Secure what matters.<br><em>Access with Confidence.</em></h1>
 
   <p>Lock away what matters before you have a chance to spend it. Bills paid. Rent covered. Every time.</p>
 
